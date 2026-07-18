@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.streamlit/secrets.toml
+
+# Local database and SQLite sidecars
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+
