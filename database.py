@@ -10,10 +10,17 @@ from tempfile import TemporaryDirectory
 from threading import RLock
 from typing import Any, Iterator, Sequence
 
+import certifi
+
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent / "data" / "workout_tracker.db"
 DEFAULT_CLOUD_CACHE_PATH = Path("/tmp/flexible_workout_tracker_cloud.db")
 _DATABASE_LOCK = RLock()
+
+# Python installations on macOS do not always expose a complete system CA bundle.
+# Turso's sync client respects SSL_CERT_FILE, so provide certifi's maintained
+# bundle while still allowing an explicit deployment setting to take precedence.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 try:
     import turso
