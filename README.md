@@ -1,6 +1,8 @@
-# Flexible Workout Tracker — Version 1
+# Flexible Workout Tracker — Version 3
 
-A local workout tracking application built with Python, Streamlit, Pandas, and SQLite. It supports a reusable exercise library, multiple routines and workouts, ordered workout templates, completed-set logging, session review, history filters, and basic exercise progress.
+A flexible workout tracking application built with Python, Streamlit, Pandas, and SQLite-compatible storage. It supports reusable exercises and routines, simple one-set logging, completed-session review, exports, combined weight/reps progress, and separate training profiles.
+
+Version 3 can run locally with SQLite or use Turso Cloud for persistent access from a phone, laptop, and desktop. Exercises and routine templates are shared, while sessions, previous results, dashboards, history, progress, and exports are isolated by profile.
 
 ## Design highlights
 
@@ -9,11 +11,20 @@ A local workout tracking application built with Python, Streamlit, Pandas, and S
 - A completed session stores snapshots of its names, exercise order, targets, and instructions. Later routine edits only affect future sessions.
 - SQLite foreign keys, constraints, parameterized queries, and transactions protect data integrity.
 - The optional `Sample Full Body` routine is starter content and can be edited or deactivated.
+- New exercises start with one working set, and workout logging initially shows one set row.
+- Completed sets can be corrected or deleted without changing their session snapshots.
+- Routine duplication copies active templates without copying history.
+- History filters apply to both CSV and formatted Excel exports.
+- A full SQLite archive preserves exercises, routines, configuration, and history in one file.
+- Profiles can be created, renamed, activated, and archived without deleting their history.
+- A persistent profile selector helps ensure each workout is logged for the correct person.
+- The same database layer supports local SQLite and an optional synced Turso Cloud database.
 
 ## Project modules
 
 - `database.py` — connections and transactions
 - `init_db.py` — schema and starter-data initialization
+- `profile_management.py` — profile creation, editing, and activation
 - `exercise_management.py` — exercise library operations
 - `routine_management.py` — routines, workouts, exercise targets, and ordering
 - `workout_logging.py` — completed sessions, sets, previous results, and reviews
@@ -40,6 +51,19 @@ python init_db.py --no-sample-routine
 
 To use a different database file, set `WORKOUT_DB_PATH` before running the initializer and app.
 
+## Cloud database
+
+For persistent cloud use, configure these secrets outside Git:
+
+```text
+TURSO_DATABASE_URL="libsql://your-database.turso.io"
+TURSO_AUTH_TOKEN="your-private-database-token"
+```
+
+When these values exist, the app uses a small local cache and explicitly pulls before reads and pushes after successful transactions. Without them, it continues using `data/workout_tracker.db` normally.
+
+On Streamlit Community Cloud, add both values in the app's **Settings → Secrets** screen. Never commit database tokens or `.streamlit/secrets.toml`.
+
 ## Launch
 
 ```bash
@@ -54,9 +78,21 @@ Then open the local URL printed by Streamlit, normally `http://localhost:8501`.
 python -m unittest discover -s tests -v
 ```
 
-The tests use temporary databases and do not modify the application database.
+The tests use temporary databases and do not modify the application database. Run them with both supported engines:
 
-## V1 scope
+```bash
+python -m unittest discover -s tests -v
+WORKOUT_DB_BACKEND=turso python -m unittest discover -s tests -v
+```
 
-This version intentionally excludes authentication, cloud hosting, Apple Health, Athlytic, Bevel, nutrition tracking, and advanced recovery calculations. See the final implementation handoff for reasonable Version 2 candidates.
+## Export and archive
 
+Open **History** and use the current routine, workout, exercise, and date filters. **Download Excel** creates a workbook with `Sessions` and `Sets` sheets. **Download CSV** exports the detailed set rows.
+
+**Archive full database** downloads a consistent SQLite backup of all local app data. To restore an archive, stop Streamlit, keep a copy of the current database, and replace `data/workout_tracker.db` with the downloaded `.db` file.
+
+## Privacy and scope
+
+Training profiles separate records inside one trainer workspace; they are not separate login accounts. A hosted deployment should therefore remain private and only be shared with the trainer unless per-user authentication is added later.
+
+This version intentionally excludes Apple Health, Athlytic, Bevel, nutrition tracking, and advanced recovery calculations.

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from database import connection_scope, transaction
+from database import INTEGRITY_ERRORS, connection_scope, transaction
 
 
 class ExerciseError(ValueError):
@@ -59,7 +58,7 @@ def create_exercise(
                 ),
             )
             return int(cursor.lastrowid)
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise ExerciseError(f"An exercise named '{name.strip()}' already exists.") from exc
 
 
@@ -94,7 +93,7 @@ def update_exercise(
             )
             if cursor.rowcount == 0:
                 raise ExerciseError("Exercise not found.")
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise ExerciseError(f"An exercise named '{name.strip()}' already exists.") from exc
 
 

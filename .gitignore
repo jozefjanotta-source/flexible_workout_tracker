@@ -19,9 +19,9 @@ env/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/backups/
 
 # Editors and operating systems
 .DS_Store
 .idea/
 .vscode/
-

@@ -19,7 +19,7 @@ class AppSmokeTests(unittest.TestCase):
                 app_path = Path(__file__).resolve().parents[1] / "app.py"
                 app = AppTest.from_file(str(app_path), default_timeout=20).run()
                 self.assertFalse(app.exception)
-                for page in ("Log workout", "History", "Exercises", "Routines"):
+                for page in ("Log workout", "History", "Exercises", "Routines", "Profiles"):
                     app.radio[0].set_value(page)
                     app.run()
                     self.assertFalse(app.exception, f"{page} failed to render")
@@ -32,4 +32,3 @@ class AppSmokeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

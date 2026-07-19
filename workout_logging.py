@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from database import connection_scope, transaction
+from profile_management import default_profile_id
 from routine_management import list_workout_exercises
 
 
@@ -36,6 +37,7 @@ def save_completed_session(
     completed_at: datetime,
     exercise_logs: Iterable[ExerciseLog],
     *,
+    profile_id: int | None = None,
     notes: str = "",
     db_path: Path | str | None = None,
 ) -> int:
@@ -53,7 +55,14 @@ def save_completed_session(
         for entry in log.sets:
             _validate_set(entry)
 
+    selected_profile_id = profile_id or default_profile_id(db_path=db_path)
     with transaction(db_path) as connection:
+        profile = connection.execute(
+            "SELECT id FROM profiles WHERE id = ? AND active = 1",
+            (selected_profile_id,),
+        ).fetchone()
+        if profile is None:
+            raise WorkoutLogError("Select an active profile before saving the workout.")
         names = connection.execute(
             """
             SELECT r.name AS routine_name, w.name AS workout_name
@@ -67,11 +76,12 @@ def save_completed_session(
         cursor = connection.execute(
             """
             INSERT INTO workout_sessions
-                (routine_id, workout_id, routine_name, workout_name,
+                (profile_id, routine_id, workout_id, routine_name, workout_name,
                  workout_date, completed_at, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                selected_profile_id,
                 routine_id,
                 workout_id,
                 names["routine_name"],
@@ -130,9 +140,60 @@ def _validate_set(entry: SetEntry) -> None:
         raise WorkoutLogError("Reps must be at least 1.")
 
 
+def update_logged_set(
+    set_id: int,
+    *,
+    weight: float,
+    reps: int,
+    intensity_method: str = "",
+    notes: str = "",
+    db_path: Path | str | None = None,
+) -> None:
+    """Correct the values of one set in a completed session."""
+    entry = SetEntry(weight, reps, intensity_method, notes)
+    _validate_set(entry)
+    with transaction(db_path) as connection:
+        cursor = connection.execute(
+            """
+            UPDATE logged_sets
+            SET weight = ?, reps = ?, intensity_method = ?, notes = ?
+            WHERE id = ?
+            """,
+            (weight, reps, intensity_method.strip(), notes.strip(), set_id),
+        )
+        if cursor.rowcount == 0:
+            raise WorkoutLogError("Logged set not found.")
+
+
+def delete_logged_set(
+    set_id: int, *, db_path: Path | str | None = None
+) -> None:
+    """Delete one incorrectly logged set and renumber the remaining sets."""
+    with transaction(db_path) as connection:
+        row = connection.execute(
+            "SELECT session_exercise_id FROM logged_sets WHERE id = ?", (set_id,)
+        ).fetchone()
+        if row is None:
+            raise WorkoutLogError("Logged set not found.")
+        connection.execute("DELETE FROM logged_sets WHERE id = ?", (set_id,))
+        remaining = connection.execute(
+            """
+            SELECT id FROM logged_sets WHERE session_exercise_id = ?
+            ORDER BY set_number, id
+            """,
+            (row["session_exercise_id"],),
+        ).fetchall()
+        for set_number, item in enumerate(remaining, start=1):
+            connection.execute(
+                "UPDATE logged_sets SET set_number = ? WHERE id = ?",
+                (set_number, item["id"]),
+            )
+
+
 def get_previous_result(
     exercise_id: int,
     *,
+    profile_id: int | None = None,
     before: datetime | None = None,
     db_path: Path | str | None = None,
 ) -> dict[str, object] | None:
@@ -146,6 +207,9 @@ def get_previous_result(
         WHERE se.exercise_id = ?
     """
     params: list[object] = [exercise_id]
+    if profile_id is not None:
+        query += " AND ws.profile_id = ?"
+        params.append(profile_id)
     if before is not None:
         query += " AND ws.completed_at < ?"
         params.append(before.isoformat(timespec="seconds"))
@@ -174,6 +238,7 @@ def get_previous_result(
 
 def list_sessions(
     *,
+    profile_id: int | None = None,
     routine_id: int | None = None,
     workout_id: int | None = None,
     exercise_id: int | None = None,
@@ -182,16 +247,21 @@ def list_sessions(
     db_path: Path | str | None = None,
 ) -> list[dict[str, object]]:
     query = """
-        SELECT DISTINCT ws.id, ws.routine_name, ws.workout_name,
+        SELECT DISTINCT ws.id, COALESCE(p.name, 'Unassigned') AS profile_name,
+               ws.routine_name, ws.workout_name,
                ws.workout_date, ws.completed_at, ws.notes,
                COUNT(DISTINCT se.id) AS exercise_count,
                COUNT(ls.id) AS set_count
         FROM workout_sessions ws
+        LEFT JOIN profiles p ON p.id = ws.profile_id
         LEFT JOIN session_exercises se ON se.session_id = ws.id
         LEFT JOIN logged_sets ls ON ls.session_exercise_id = se.id
         WHERE 1 = 1
     """
     params: list[object] = []
+    if profile_id is not None:
+        query += " AND ws.profile_id = ?"
+        params.append(profile_id)
     if routine_id is not None:
         query += " AND ws.routine_id = ?"
         params.append(routine_id)
@@ -233,7 +303,7 @@ def get_session_review(
         result_exercises: list[dict[str, object]] = []
         for exercise in exercises:
             sets = connection.execute(
-                "SELECT set_number, weight, reps, intensity_method, notes FROM logged_sets WHERE session_exercise_id = ? ORDER BY set_number",
+                "SELECT id, set_number, weight, reps, intensity_method, notes FROM logged_sets WHERE session_exercise_id = ? ORDER BY set_number",
                 (exercise["id"],),
             ).fetchall()
             exercise_data = dict(exercise)

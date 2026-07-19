@@ -10,11 +10,25 @@ from database import get_db_path, transaction
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS exercises (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL COLLATE NOCASE UNIQUE,
     primary_muscle_group TEXT NOT NULL,
     equipment TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
     notes TEXT NOT NULL DEFAULT '',
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -59,6 +73,7 @@ CREATE TABLE IF NOT EXISTS workout_exercises (
 
 CREATE TABLE IF NOT EXISTS workout_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL REFERENCES profiles(id),
     routine_id INTEGER REFERENCES routines(id),
     workout_id INTEGER REFERENCES workouts(id),
     routine_name TEXT NOT NULL,
@@ -130,6 +145,7 @@ def initialize_database(
         )
         if seed_sample_routine:
             _seed_sample_routine(connection)
+        _apply_migrations(connection)
     return path
 
 
@@ -161,9 +177,9 @@ def _seed_sample_routine(connection: sqlite3.Connection) -> None:
     if workout is None:
         return
     examples = (
-        ("Barbell Back Squat", 1, 5, 8, 3),
-        ("Bench Press", 2, 6, 10, 3),
-        ("Lat Pulldown", 3, 8, 12, 3),
+        ("Barbell Back Squat", 1, 5, 8, 1),
+        ("Bench Press", 2, 6, 10, 1),
+        ("Lat Pulldown", 3, 8, 12, 1),
     )
     for name, position, minimum, maximum, sets in examples:
         exercise = connection.execute(
@@ -182,6 +198,62 @@ def _seed_sample_routine(connection: sqlite3.Connection) -> None:
             )
 
 
+def _apply_migrations(connection: sqlite3.Connection) -> None:
+    """Apply small, idempotent data migrations for existing local databases."""
+    one_set_version = "v2_one_set_defaults"
+    if not _migration_applied(connection, one_set_version):
+        connection.execute(
+            "UPDATE workout_exercises SET target_sets = 1, updated_at = CURRENT_TIMESTAMP"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)", (one_set_version,)
+        )
+
+    profile_version = "v3_training_profiles"
+    if not _migration_applied(connection, profile_version):
+        connection.execute(
+            """
+            INSERT INTO profiles (name, notes)
+            VALUES ('My profile', 'Existing workout history was assigned here during the profile upgrade.')
+            ON CONFLICT(name) DO NOTHING
+            """
+        )
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(workout_sessions)")
+        }
+        if "profile_id" not in columns:
+            connection.execute(
+                "ALTER TABLE workout_sessions ADD COLUMN profile_id INTEGER REFERENCES profiles(id)"
+            )
+        default_profile = connection.execute(
+            "SELECT id FROM profiles WHERE name = 'My profile'"
+        ).fetchone()
+        if default_profile is None:
+            raise sqlite3.IntegrityError("Unable to create the default training profile.")
+        connection.execute(
+            "UPDATE workout_sessions SET profile_id = ? WHERE profile_id IS NULL",
+            (default_profile["id"],),
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sessions_profile_date
+            ON workout_sessions(profile_id, workout_date DESC, completed_at DESC)
+            """
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)", (profile_version,)
+        )
+
+
+def _migration_applied(connection: sqlite3.Connection, version: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM schema_migrations WHERE version = ?", (version,)
+        ).fetchone()
+        is not None
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Initialize the workout tracker database.")
     parser.add_argument("--db", type=Path, help="Optional database path")
@@ -195,4 +267,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

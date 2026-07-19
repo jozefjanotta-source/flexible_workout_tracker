@@ -7,28 +7,43 @@ import tempfile
 import unittest
 from contextlib import closing
 from datetime import date, datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
+from openpyxl import load_workbook
+
+from database import create_database_backup
 from exercise_management import create_exercise, list_exercises, update_exercise
+from export_management import build_history_workbook
 from init_db import initialize_database
-from progress_calculations import days_since_previous_workout, exercise_progress
+from profile_management import ProfileError, create_profile, list_profiles, update_profile
+from progress_calculations import (
+    days_since_previous_workout,
+    exercise_progress,
+    history_dataframe,
+)
 from routine_management import (
     add_exercise_to_workout,
     create_routine,
     create_workout,
+    duplicate_routine,
+    list_routines,
     list_workout_exercises,
+    list_workouts,
     move_workout_exercise,
     remove_exercise_from_workout,
     update_routine,
     update_workout_exercise,
 )
 from workout_logging import (
+    delete_logged_set,
     ExerciseLog,
     SetEntry,
     get_previous_result,
     get_session_review,
     list_sessions,
     save_completed_session,
+    update_logged_set,
 )
 
 
@@ -124,7 +139,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNotNone(previous)
         self.assertEqual(len(previous["sets"]), 2)
         progress = exercise_progress(bench.id, db_path=self.db_path)
-        self.assertEqual(progress.iloc[0]["volume"], 900.0)
+        self.assertEqual(
+            list(progress.columns),
+            ["date", "workout_name", "weight", "reps", "evaluation"],
+        )
+        self.assertEqual(progress.iloc[0]["weight"], 60.0)
+        self.assertEqual(progress.iloc[0]["reps"], 8)
         self.assertEqual(days_since_previous_workout(db_path=self.db_path), 3)
 
     def test_schema_has_expected_tables(self) -> None:
@@ -136,6 +156,7 @@ class WorkflowTests(unittest.TestCase):
                 )
             }
         expected = {
+            "profiles",
             "exercises",
             "routines",
             "workouts",
@@ -143,10 +164,197 @@ class WorkflowTests(unittest.TestCase):
             "workout_sessions",
             "session_exercises",
             "logged_sets",
+            "schema_migrations",
         }
         self.assertTrue(expected.issubset(tables))
+
+    def test_profiles_keep_history_and_progress_separate(self) -> None:
+        jozef_id = create_profile("Jozef", db_path=self.db_path)
+        adrian_id = create_profile("Adrian", db_path=self.db_path)
+        with self.assertRaises(ProfileError):
+            create_profile("jozef", db_path=self.db_path)
+        bench = next(
+            item
+            for item in list_exercises(active_only=True, db_path=self.db_path)
+            if item.name == "Bench Press"
+        )
+        routine_id = create_routine("Shared Plan", db_path=self.db_path)
+        workout_id = create_workout(routine_id, "Bench Day", db_path=self.db_path)
+        config_id = add_exercise_to_workout(
+            workout_id,
+            bench.id,
+            target_min_reps=5,
+            target_max_reps=10,
+            target_sets=1,
+            db_path=self.db_path,
+        )
+        workout_date = date(2026, 2, 1)
+        for profile_id, weight, reps in ((jozef_id, 50, 8), (adrian_id, 70, 5)):
+            save_completed_session(
+                routine_id,
+                workout_id,
+                workout_date,
+                datetime.combine(workout_date, datetime.min.time()).replace(hour=18),
+                [ExerciseLog(config_id, (SetEntry(weight, reps),))],
+                profile_id=profile_id,
+                db_path=self.db_path,
+            )
+
+        self.assertEqual(len(list_sessions(profile_id=jozef_id, db_path=self.db_path)), 1)
+        self.assertEqual(len(list_sessions(profile_id=adrian_id, db_path=self.db_path)), 1)
+        self.assertEqual(
+            get_previous_result(
+                bench.id, profile_id=jozef_id, db_path=self.db_path
+            )["sets"][0]["weight"],
+            50,
+        )
+        self.assertEqual(
+            get_previous_result(
+                bench.id, profile_id=adrian_id, db_path=self.db_path
+            )["sets"][0]["weight"],
+            70,
+        )
+        self.assertEqual(
+            exercise_progress(
+                bench.id, profile_id=jozef_id, db_path=self.db_path
+            ).iloc[0]["weight"],
+            50,
+        )
+        adrian_history = history_dataframe(
+            profile_id=adrian_id, db_path=self.db_path
+        )
+        self.assertEqual(adrian_history["profile"].unique().tolist(), ["Adrian"])
+
+        update_profile(
+            adrian_id,
+            name="Adrian",
+            notes="Archived client",
+            active=False,
+            db_path=self.db_path,
+        )
+        active_names = {
+            profile.name for profile in list_profiles(active_only=True, db_path=self.db_path)
+        }
+        self.assertIn("Jozef", active_names)
+        self.assertNotIn("Adrian", active_names)
+        self.assertEqual(len(list_sessions(profile_id=adrian_id, db_path=self.db_path)), 1)
+
+    def test_progress_evaluates_weight_and_reps_together(self) -> None:
+        bench = next(
+            item
+            for item in list_exercises(active_only=True, db_path=self.db_path)
+            if item.name == "Bench Press"
+        )
+        routine_id = create_routine("Progress Test", db_path=self.db_path)
+        workout_id = create_workout(routine_id, "Bench Day", db_path=self.db_path)
+        config_id = add_exercise_to_workout(
+            workout_id,
+            bench.id,
+            target_min_reps=6,
+            target_max_reps=10,
+            target_sets=1,
+            db_path=self.db_path,
+        )
+        results = [(50, 10), (50, 10), (50, 9), (52.5, 8), (50, 9)]
+        for offset, (weight, reps) in enumerate(results):
+            workout_date = date(2026, 1, 1) + timedelta(days=offset)
+            save_completed_session(
+                routine_id,
+                workout_id,
+                workout_date,
+                datetime.combine(workout_date, datetime.min.time()).replace(hour=18),
+                [ExerciseLog(config_id, (SetEntry(weight, reps),))],
+                db_path=self.db_path,
+            )
+
+        progress = exercise_progress(bench.id, db_path=self.db_path)
+        self.assertEqual(
+            progress["evaluation"].tolist(),
+            ["Baseline", "No progress", "Regression", "Progress", "Progress"],
+        )
+
+    def test_one_set_defaults_and_routine_duplication(self) -> None:
+        initialize_database(self.db_path, seed_sample_routine=True)
+        sample = next(
+            routine
+            for routine in list_routines(db_path=self.db_path)
+            if routine.name == "Sample Full Body"
+        )
+        sample_workout = list_workouts(sample.id, db_path=self.db_path)[0]
+        sample_exercises = list_workout_exercises(sample_workout.id, self.db_path)
+        self.assertTrue(sample_exercises)
+        self.assertTrue(all(item.target_sets == 1 for item in sample_exercises))
+
+        copy_id = duplicate_routine(sample.id, "My Full Body", db_path=self.db_path)
+        copied_workout = list_workouts(copy_id, db_path=self.db_path)[0]
+        copied_exercises = list_workout_exercises(copied_workout.id, self.db_path)
+        self.assertEqual(
+            [item.exercise_name for item in copied_exercises],
+            [item.exercise_name for item in sample_exercises],
+        )
+        self.assertEqual(list_sessions(routine_id=copy_id, db_path=self.db_path), [])
+
+    def test_correct_delete_and_export_logged_set(self) -> None:
+        bench = next(
+            item
+            for item in list_exercises(active_only=True, db_path=self.db_path)
+            if item.name == "Bench Press"
+        )
+        routine_id = create_routine("Export Test", db_path=self.db_path)
+        workout_id = create_workout(routine_id, "Bench Day", db_path=self.db_path)
+        config_id = add_exercise_to_workout(
+            workout_id,
+            bench.id,
+            target_min_reps=6,
+            target_max_reps=10,
+            target_sets=1,
+            db_path=self.db_path,
+        )
+        session_id = save_completed_session(
+            routine_id,
+            workout_id,
+            date.today(),
+            datetime.now(),
+            [ExerciseLog(config_id, (SetEntry(50, 8), SetEntry(50, 7)))],
+            db_path=self.db_path,
+        )
+        review = get_session_review(session_id, self.db_path)
+        first_set, second_set = review["exercises"][0]["sets"]
+        update_logged_set(
+            first_set["id"], weight=55, reps=9, notes="Corrected", db_path=self.db_path
+        )
+        delete_logged_set(second_set["id"], db_path=self.db_path)
+
+        corrected = get_session_review(session_id, self.db_path)["exercises"][0]["sets"]
+        self.assertEqual(len(corrected), 1)
+        self.assertEqual(corrected[0]["weight"], 55)
+        self.assertEqual(corrected[0]["reps"], 9)
+        exported = history_dataframe(
+            routine_id=routine_id, exercise_id=bench.id, db_path=self.db_path
+        )
+        self.assertEqual(len(exported), 1)
+        self.assertEqual(exported.iloc[0]["notes"], "Corrected")
+        self.assertNotIn("session_id", exported.columns)
+
+        sessions = list_sessions(routine_id=routine_id, db_path=self.db_path)
+        workbook_bytes = build_history_workbook(sessions, exported)
+        workbook = load_workbook(BytesIO(workbook_bytes), data_only=False)
+        self.assertEqual(workbook.sheetnames, ["Sessions", "Sets"])
+        self.assertNotIn("Session ID", [cell.value for cell in workbook["Sessions"][1]])
+        self.assertNotIn("Session ID", [cell.value for cell in workbook["Sets"][1]])
+        self.assertEqual(workbook["Sessions"]["D2"].value, "Export Test")
+        self.assertEqual(workbook["Sets"]["G2"].value, 55)
+        self.assertEqual(workbook["Sets"].freeze_panes, "A2")
+
+        backup = create_database_backup(self.db_path)
+        backup_path = Path(self.temp_dir.name) / "restored.db"
+        backup_path.write_bytes(backup)
+        with closing(sqlite3.connect(backup_path)) as connection:
+            session_count = connection.execute(
+                "SELECT COUNT(*) FROM workout_sessions"
+            ).fetchone()[0]
+        self.assertEqual(session_count, 1)
 
 
 if __name__ == "__main__":
     unittest.main()
-

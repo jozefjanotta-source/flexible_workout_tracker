@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Callable
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
+from database import create_database_backup
 from exercise_management import (
     ExerciseError,
     create_exercise,
@@ -15,12 +17,25 @@ from exercise_management import (
     update_exercise,
 )
 from init_db import initialize_database
-from progress_calculations import days_since_previous_workout, exercise_progress
+from export_management import build_history_workbook
+from progress_calculations import (
+    days_since_previous_workout,
+    exercise_progress,
+    history_dataframe,
+)
+from profile_management import (
+    ProfileError,
+    create_profile,
+    default_profile_id,
+    list_profiles,
+    update_profile,
+)
 from routine_management import (
     RoutineError,
     add_exercise_to_workout,
     create_routine,
     create_workout,
+    duplicate_routine,
     list_routines,
     list_workout_exercises,
     list_workouts,
@@ -31,6 +46,7 @@ from routine_management import (
     update_workout_exercise,
 )
 from workout_logging import (
+    delete_logged_set,
     ExerciseLog,
     SetEntry,
     WorkoutLogError,
@@ -38,6 +54,7 @@ from workout_logging import (
     get_session_review,
     list_sessions,
     save_completed_session,
+    update_logged_set,
 )
 
 
@@ -49,6 +66,27 @@ st.markdown(
     <style>
     .block-container {max-width: 1120px; padding-top: 2rem;}
     [data-testid="stMetric"] {background: rgba(128, 128, 128, 0.10); border: 1px solid rgba(128, 128, 128, 0.22); border-radius: 0.7rem; padding: 0.8rem;}
+    @media (max-width: 640px) {
+        .block-container {
+            padding-top: 4.75rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-bottom: 7rem;
+        }
+        div[data-baseweb="select"] > div {min-height: 44px;}
+        .st-key-save_workout_action {
+            position: fixed;
+            left: 1rem;
+            right: 1rem;
+            bottom: 0.75rem;
+            z-index: 999;
+            padding: 0.5rem;
+            border: 1px solid var(--st-border-color);
+            border-radius: 0.75rem;
+            background: var(--st-background-color);
+            box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.18);
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -60,7 +98,7 @@ def show_error(action: Callable[[], object]) -> bool:
     try:
         action()
         return True
-    except (ExerciseError, RoutineError, WorkoutLogError, ValueError) as exc:
+    except (ExerciseError, ProfileError, RoutineError, WorkoutLogError, ValueError) as exc:
         st.error(str(exc))
         return False
     except Exception as exc:  # UI boundary: do not crash the whole app.
@@ -74,13 +112,94 @@ def format_sets(sets: list[dict[str, object]]) -> str:
     return " · ".join(f"{row['weight']:g} × {row['reps']}" for row in sets)
 
 
+def current_profile_id() -> int:
+    """Return the profile chosen in the persistent top-level selector."""
+    profile_id = st.session_state.get("active_profile_id")
+    if not isinstance(profile_id, int):
+        raise ProfileError("Select a training profile.")
+    return profile_id
+
+
+def format_date(value: object) -> str:
+    """Format a stored date consistently for the interface."""
+    if isinstance(value, datetime):
+        parsed = value.date()
+    elif isinstance(value, date):
+        parsed = value
+    else:
+        try:
+            parsed = date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return str(value)
+    return parsed.strftime("%d/%m/%y")
+
+
+def format_datetime(value: object) -> str:
+    """Format a stored completion timestamp for the interface."""
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except ValueError:
+            return str(value)
+    return parsed.strftime("%d/%m/%y %H:%M")
+
+
+def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
+    """Plot weight and reps together with independent, readable scales."""
+    tooltip = [
+        alt.Tooltip("date:T", title="Date", format="%d/%m/%y"),
+        alt.Tooltip("workout_name:N", title="Workout"),
+        alt.Tooltip("weight:Q", title="Weight"),
+        alt.Tooltip("reps:Q", title="Reps"),
+        alt.Tooltip("evaluation:N", title="Evaluation"),
+    ]
+    x_axis = alt.X("date:T", title="Date", axis=alt.Axis(format="%d/%m/%y"))
+    evaluation_color = alt.Color(
+        "evaluation:N",
+        title="Evaluation",
+        scale=alt.Scale(
+            domain=["Baseline", "Progress", "No progress", "Regression"],
+            range=["#64748B", "#16A34A", "#D97706", "#DC2626"],
+        ),
+    )
+    base = alt.Chart(frame).encode(x=x_axis)
+    weight_y = alt.Y(
+        "weight:Q",
+        title="Weight",
+        scale=alt.Scale(zero=False),
+        axis=alt.Axis(titleColor="#2563EB", labelColor="#2563EB"),
+    )
+    reps_y = alt.Y(
+        "reps:Q",
+        title="Reps",
+        scale=alt.Scale(zero=False),
+        axis=alt.Axis(titleColor="#EA580C", labelColor="#EA580C", orient="right"),
+    )
+    weight_line = base.mark_line(color="#2563EB", strokeWidth=3).encode(y=weight_y)
+    weight_points = base.mark_point(filled=True, size=95).encode(
+        y=weight_y, color=evaluation_color, tooltip=tooltip
+    )
+    reps_line = base.mark_line(color="#EA580C", strokeWidth=3, strokeDash=[6, 3]).encode(y=reps_y)
+    reps_points = base.mark_point(filled=True, size=95, shape="square").encode(
+        y=reps_y, color=evaluation_color, tooltip=tooltip
+    )
+    return (
+        alt.layer(weight_line, weight_points, reps_line, reps_points)
+        .resolve_scale(y="independent")
+        .properties(height=360)
+    )
+
+
 def dashboard_page() -> None:
     st.title("Workout tracker")
     st.caption("Flexible routines, straightforward logging, and useful history.")
     routines = list_routines(active_only=True)
     exercises = list_exercises(active_only=True)
-    sessions = list_sessions()
-    days = days_since_previous_workout()
+    profile_id = current_profile_id()
+    sessions = list_sessions(profile_id=profile_id)
+    days = days_since_previous_workout(profile_id=profile_id)
     columns = st.columns(4)
     columns[0].metric("Active routines", len(routines))
     columns[1].metric("Active exercises", len(exercises))
@@ -99,7 +218,83 @@ def dashboard_page() -> None:
             "set_count": "Sets",
         }
     )
+    frame["Date"] = frame["Date"].map(format_date)
     st.dataframe(frame[["Date", "Routine", "Workout", "Exercises", "Sets"]], hide_index=True, width="stretch")
+
+    st.subheader("Latest exercise progress")
+    latest_rows: list[dict[str, object]] = []
+    for exercise in exercises:
+        progress = exercise_progress(exercise.id, profile_id=profile_id)
+        if progress.empty:
+            continue
+        latest = progress.iloc[-1]
+        latest_rows.append(
+            {
+                "Exercise": exercise.name,
+                "Date": latest["date"],
+                "Weight": latest["weight"],
+                "Reps": latest["reps"],
+                "Evaluation": latest["evaluation"],
+            }
+        )
+    if not latest_rows:
+        st.info("Log another result for an exercise to start evaluating progress.")
+        return
+
+    latest_frame = pd.DataFrame(latest_rows).sort_values(
+        ["Date", "Exercise"], ascending=[False, True]
+    )
+    evaluations = latest_frame["Evaluation"].value_counts()
+    summary_columns = st.columns(4)
+    summary_columns[0].metric("Progress", int(evaluations.get("Progress", 0)))
+    summary_columns[1].metric("No progress", int(evaluations.get("No progress", 0)))
+    summary_columns[2].metric("Regression", int(evaluations.get("Regression", 0)))
+    summary_columns[3].metric("Baseline", int(evaluations.get("Baseline", 0)))
+    latest_frame["Date"] = latest_frame["Date"].dt.strftime("%d/%m/%y")
+    latest_frame["Evaluation"] = latest_frame["Evaluation"].map(
+        {
+            "Progress": "🟢 Progress",
+            "No progress": "🟠 No progress",
+            "Regression": "🔴 Regression",
+            "Baseline": "⚪ Baseline",
+        }
+    )
+    st.dataframe(latest_frame, hide_index=True, width="stretch")
+
+
+def profiles_page() -> None:
+    st.title("Profiles")
+    st.caption("Profiles keep each person's workout history and progress separate.")
+    create_tab, manage_tab = st.tabs(["Create profile", "Manage profiles"])
+    with create_tab:
+        with st.form("create_profile", clear_on_submit=True):
+            name = st.text_input("Profile name")
+            notes = st.text_area("Notes", placeholder="Optional coaching or profile notes")
+            submitted = st.form_submit_button("Create profile")
+        if submitted and show_error(lambda: create_profile(name, notes)):
+            st.success("Profile created.")
+            st.rerun()
+
+    with manage_tab:
+        profiles = list_profiles()
+        for profile in profiles:
+            status = "Active" if profile.active else "Archived"
+            with st.expander(f"{profile.name} · {status}"):
+                with st.form(f"edit_profile_{profile.id}"):
+                    edited_name = st.text_input("Profile name", value=profile.name)
+                    edited_notes = st.text_area("Notes", value=profile.notes)
+                    edited_active = st.checkbox("Active", value=profile.active)
+                    saved = st.form_submit_button("Save profile")
+                if saved and show_error(
+                    lambda item=profile: update_profile(
+                        item.id,
+                        name=edited_name,
+                        notes=edited_notes,
+                        active=edited_active,
+                    )
+                ):
+                    st.success("Profile updated.")
+                    st.rerun()
 
 
 def exercises_page() -> None:
@@ -169,6 +364,25 @@ def routines_page() -> None:
         if create and show_error(lambda: create_routine(name, description)):
             st.success("Routine created. Add its first workout in the Edit routine tab.")
             st.rerun()
+
+        if routines:
+            st.divider()
+            st.subheader("Duplicate routine")
+            st.caption("Copies the active workout structure and targets, but not history.")
+            duplicate_labels = {routine.id: routine.name for routine in routines}
+            with st.form("duplicate_routine", clear_on_submit=True):
+                source_routine_id = st.selectbox(
+                    "Source routine",
+                    list(duplicate_labels),
+                    format_func=duplicate_labels.get,
+                )
+                duplicate_name = st.text_input("New routine name")
+                duplicate = st.form_submit_button("Duplicate routine")
+            if duplicate and show_error(
+                lambda: duplicate_routine(source_routine_id, duplicate_name)
+            ):
+                st.success("Routine duplicated. Its history starts empty.")
+                st.rerun()
 
     with edit_tab:
         if not routines:
@@ -251,7 +465,7 @@ def routines_page() -> None:
                 col1, col2, col3 = st.columns(3)
                 minimum = col1.number_input("Minimum reps", 1, 100, 6)
                 maximum = col2.number_input("Maximum reps", 1, 100, 10)
-                target_sets = col3.number_input("Working sets", 1, 20, 3)
+                target_sets = col3.number_input("Working sets", 1, 20, 1)
                 instructions = st.text_input("Optional instructions")
                 add = st.form_submit_button("Add to workout")
             if add and show_error(
@@ -308,6 +522,7 @@ def routines_page() -> None:
 
 def log_workout_page() -> None:
     st.title("Log workout")
+    profile_id = current_profile_id()
     routines = list_routines(active_only=True)
     if not routines:
         st.info("Create and activate a routine before logging a workout.")
@@ -333,14 +548,15 @@ def log_workout_page() -> None:
     edited_frames: dict[int, pd.DataFrame] = {}
     for item in configured:
         st.subheader(f"{item.position}. {item.exercise_name}")
+        set_label = "set" if item.target_sets == 1 else "sets"
         st.caption(
-            f"Target: {item.target_sets} sets of {item.target_min_reps}–{item.target_max_reps} reps"
+            f"Target: {item.target_sets} {set_label} of {item.target_min_reps}–{item.target_max_reps} reps"
             + (f" · {item.instructions}" if item.instructions else "")
         )
-        previous = get_previous_result(item.exercise_id)
+        previous = get_previous_result(item.exercise_id, profile_id=profile_id)
         if previous:
             st.info(
-                f"Previous · {previous['workout_date']} · {previous['workout_name']}: "
+                f"Previous · {format_date(previous['workout_date'])} · {previous['workout_name']}: "
                 f"{format_sets(previous['sets'])}"
             )
         else:
@@ -348,7 +564,7 @@ def log_workout_page() -> None:
         initial = pd.DataFrame(
             [
                 {"Done": False, "Weight": 0.0, "Reps": item.target_min_reps, "Intensity method": "", "Notes": ""}
-                for _ in range(item.target_sets)
+                for _ in range(1)
             ]
         )
         edited_frames[item.id] = st.data_editor(
@@ -365,7 +581,11 @@ def log_workout_page() -> None:
             },
         )
 
-    if st.button("Complete and save workout", type="primary", width="stretch"):
+    with st.container(key="save_workout_action"):
+        save_workout = st.button(
+            "Complete and save workout", type="primary", width="stretch"
+        )
+    if save_workout:
         logs: list[ExerciseLog] = []
         for item in configured:
             entries: list[SetEntry] = []
@@ -391,6 +611,7 @@ def log_workout_page() -> None:
                     session_date,
                     completed_at,
                     logs,
+                    profile_id=profile_id,
                     notes=session_notes,
                 )
             )
@@ -403,6 +624,7 @@ def log_workout_page() -> None:
 
 def history_page() -> None:
     st.title("History")
+    profile_id = current_profile_id()
     routines = list_routines()
     exercises = list_exercises()
     routine_options = {0: "All routines", **{item.id: item.name for item in routines}}
@@ -417,17 +639,56 @@ def history_page() -> None:
     date_from = col4.date_input("From", value=None)
     date_to = col5.date_input("To", value=None)
     sessions = list_sessions(
+        profile_id=profile_id,
         routine_id=routine_id or None,
         workout_id=workout_id or None,
         exercise_id=exercise_id or None,
         date_from=date_from,
         date_to=date_to,
     )
+    filtered_history = history_dataframe(
+        profile_id=profile_id,
+        routine_id=routine_id or None,
+        workout_id=workout_id or None,
+        exercise_id=exercise_id or None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    csv_history = filtered_history.copy()
+    if not csv_history.empty:
+        csv_history["date"] = pd.to_datetime(csv_history["date"]).dt.strftime("%d/%m/%y")
+    st.subheader("Export and archive")
+    excel_bytes = build_history_workbook(sessions, filtered_history)
+    export_col1, export_col2, export_col3 = st.columns(3)
+    export_col1.download_button(
+        "Download Excel",
+        data=excel_bytes,
+        file_name=f"workout_history_{date.today().isoformat()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        disabled=not sessions,
+        width="stretch",
+    )
+    export_col2.download_button(
+        "Download CSV",
+        data=csv_history.to_csv(index=False).encode("utf-8"),
+        file_name=f"workout_history_{date.today().isoformat()}.csv",
+        mime="text/csv",
+        disabled=filtered_history.empty,
+        width="stretch",
+    )
+    export_col3.download_button(
+        "Archive full database",
+        data=create_database_backup(),
+        file_name=f"workout_tracker_backup_{date.today().isoformat()}.db",
+        mime="application/vnd.sqlite3",
+        width="stretch",
+        help="Complete local backup including exercises, routines, configuration, and history.",
+    )
     if not sessions:
         st.info("No sessions match these filters.")
     else:
         session_labels = {
-            int(row["id"]): f"{row['workout_date']} · {row['routine_name']} / {row['workout_name']} · {row['set_count']} sets"
+            int(row["id"]): f"{format_date(row['workout_date'])} · {row['routine_name']} / {row['workout_name']} · {row['set_count']} sets"
             for row in sessions
         }
         default_id = st.session_state.pop("last_saved_session", None)
@@ -440,8 +701,10 @@ def history_page() -> None:
             format_func=session_labels.get,
         )
         review = get_session_review(selected_id)
-        st.markdown(f"### {review['workout_name']} · {review['workout_date']}")
-        st.caption(f"Routine: {review['routine_name']} · Completed: {review['completed_at']}")
+        st.markdown(f"### {review['workout_name']} · {format_date(review['workout_date'])}")
+        st.caption(
+            f"Routine: {review['routine_name']} · Completed: {format_datetime(review['completed_at'])}"
+        )
         if review["notes"]:
             st.write(review["notes"])
         for item in review["exercises"]:
@@ -454,7 +717,39 @@ def history_page() -> None:
                 if item["instructions"]:
                     st.caption(item["instructions"])
                 if item["sets"]:
-                    st.dataframe(pd.DataFrame(item["sets"]), hide_index=True, width="stretch")
+                    st.caption("Correct a value or delete an incorrectly logged set.")
+                    for set_row in item["sets"]:
+                        with st.form(f"edit_logged_set_{set_row['id']}"):
+                            col1, col2 = st.columns(2)
+                            corrected_weight = col1.number_input(
+                                "Weight", min_value=0.0, value=float(set_row["weight"]), step=0.5
+                            )
+                            corrected_reps = col2.number_input(
+                                "Reps", min_value=1, value=int(set_row["reps"]), step=1
+                            )
+                            corrected_method = st.text_input(
+                                "Intensity method", value=set_row["intensity_method"]
+                            )
+                            corrected_notes = st.text_input("Set notes", value=set_row["notes"])
+                            save_col, delete_col = st.columns(2)
+                            save_set = save_col.form_submit_button("Save set")
+                            delete_set = delete_col.form_submit_button("Delete set")
+                        if save_set and show_error(
+                            lambda row=set_row: update_logged_set(
+                                row["id"],
+                                weight=float(corrected_weight),
+                                reps=int(corrected_reps),
+                                intensity_method=corrected_method,
+                                notes=corrected_notes,
+                            )
+                        ):
+                            st.success("Set corrected.")
+                            st.rerun()
+                        if delete_set and show_error(
+                            lambda row=set_row: delete_logged_set(row["id"])
+                        ):
+                            st.success("Set deleted.")
+                            st.rerun()
                 else:
                     st.caption("Skipped in this session.")
 
@@ -467,22 +762,34 @@ def history_page() -> None:
     progress_id = st.selectbox(
         "Choose exercise", list(progress_options), format_func=progress_options.get, key="progress_exercise"
     )
-    progress = exercise_progress(progress_id)
+    progress = exercise_progress(progress_id, profile_id=profile_id)
     if progress.empty:
         st.caption("No logged sets for this exercise yet.")
     else:
-        metric = st.radio(
-            "Chart metric",
-            ["estimated_1rm", "max_weight", "volume"],
-            format_func=lambda value: {
-                "estimated_1rm": "Estimated 1RM",
-                "max_weight": "Maximum weight",
-                "volume": "Training volume",
-            }[value],
-            horizontal=True,
+        latest_evaluation = str(progress.iloc[-1]["evaluation"])
+        latest_message = (
+            f"Latest result: {latest_evaluation} · "
+            f"{progress.iloc[-1]['weight']:g} weight × {int(progress.iloc[-1]['reps'])} reps"
         )
-        st.line_chart(progress.set_index("date")[[metric]])
-        st.dataframe(progress, hide_index=True, width="stretch")
+        if latest_evaluation == "Progress":
+            st.success(latest_message)
+        elif latest_evaluation == "Regression":
+            st.error(latest_message)
+        else:
+            st.info(latest_message)
+        st.caption("Blue line: weight · Orange dashed line: reps · Point colour: evaluation")
+        st.altair_chart(progress_chart(progress), width="stretch")
+        display_progress = progress.rename(
+            columns={
+                "date": "Date",
+                "workout_name": "Workout",
+                "weight": "Weight",
+                "reps": "Reps",
+                "evaluation": "Evaluation",
+            }
+        )
+        display_progress["Date"] = display_progress["Date"].dt.strftime("%d/%m/%y")
+        st.dataframe(display_progress, hide_index=True, width="stretch")
 
 
 PAGES = {
@@ -491,11 +798,26 @@ PAGES = {
     "History": history_page,
     "Exercises": exercises_page,
     "Routines": routines_page,
+    "Profiles": profiles_page,
 }
 
+active_profiles = list_profiles(active_only=True)
+if not active_profiles:
+    st.error("No active profiles are available. Reactivate or create a profile to continue.")
+    profiles_page()
+    st.stop()
+profile_options = {profile.id: profile.name for profile in active_profiles}
+if st.session_state.get("active_profile_id") not in profile_options:
+    st.session_state["active_profile_id"] = default_profile_id()
+st.selectbox(
+    "Training profile",
+    list(profile_options),
+    format_func=profile_options.get,
+    key="active_profile_id",
+)
 page_name = st.radio(
     "Navigate", list(PAGES), horizontal=True, label_visibility="collapsed"
 )
-st.caption("Local V1 · SQLite")
+st.caption("V3 profiles · SQLite")
 
 PAGES[page_name]()

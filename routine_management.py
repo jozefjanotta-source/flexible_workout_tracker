@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from database import connection_scope, transaction
+from database import INTEGRITY_ERRORS, connection_scope, transaction
 
 
 class RoutineError(ValueError):
@@ -62,8 +62,69 @@ def create_routine(
                 (name.strip(), description.strip(), int(active)),
             )
             return int(cursor.lastrowid)
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise RoutineError(f"A routine named '{name.strip()}' already exists.") from exc
+
+
+def duplicate_routine(
+    routine_id: int,
+    new_name: str,
+    *,
+    db_path: Path | str | None = None,
+) -> int:
+    """Copy an active routine structure without copying any training history."""
+    if not new_name.strip():
+        raise RoutineError("New routine name is required.")
+    try:
+        with transaction(db_path) as connection:
+            source = connection.execute(
+                "SELECT description FROM routines WHERE id = ?", (routine_id,)
+            ).fetchone()
+            if source is None:
+                raise RoutineError("Source routine not found.")
+            routine_cursor = connection.execute(
+                "INSERT INTO routines (name, description, active) VALUES (?, ?, 1)",
+                (new_name.strip(), source["description"]),
+            )
+            new_routine_id = int(routine_cursor.lastrowid)
+            workouts = connection.execute(
+                """
+                SELECT id, name, description, position FROM workouts
+                WHERE routine_id = ? AND active = 1 ORDER BY position, id
+                """,
+                (routine_id,),
+            ).fetchall()
+            for workout in workouts:
+                workout_cursor = connection.execute(
+                    """
+                    INSERT INTO workouts
+                        (routine_id, name, description, position, active)
+                    VALUES (?, ?, ?, ?, 1)
+                    """,
+                    (
+                        new_routine_id,
+                        workout["name"],
+                        workout["description"],
+                        workout["position"],
+                    ),
+                )
+                new_workout_id = int(workout_cursor.lastrowid)
+                connection.execute(
+                    """
+                    INSERT INTO workout_exercises
+                        (workout_id, exercise_id, position, target_min_reps,
+                         target_max_reps, target_sets, instructions, active)
+                    SELECT ?, exercise_id, position, target_min_reps,
+                           target_max_reps, target_sets, instructions, 1
+                    FROM workout_exercises
+                    WHERE workout_id = ? AND active = 1
+                    ORDER BY position, id
+                    """,
+                    (new_workout_id, workout["id"]),
+                )
+            return new_routine_id
+    except INTEGRITY_ERRORS as exc:
+        raise RoutineError(f"A routine named '{new_name.strip()}' already exists.") from exc
 
 
 def update_routine(
@@ -87,7 +148,7 @@ def update_routine(
             )
             if cursor.rowcount == 0:
                 raise RoutineError("Routine not found.")
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise RoutineError(f"A routine named '{name.strip()}' already exists.") from exc
 
 
@@ -127,7 +188,7 @@ def create_workout(
                 (routine_id, name.strip(), description.strip(), position),
             )
             return int(cursor.lastrowid)
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise RoutineError("That workout name is already used in this routine.") from exc
 
 
@@ -152,7 +213,7 @@ def update_workout(
             )
             if cursor.rowcount == 0:
                 raise RoutineError("Workout not found.")
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise RoutineError("That workout name is already used in this routine.") from exc
 
 
@@ -222,7 +283,7 @@ def add_exercise_to_workout(
                 (workout_id, exercise_id, position, target_min_reps, target_max_reps, target_sets, instructions.strip()),
             )
             return int(cursor.lastrowid)
-    except sqlite3.IntegrityError as exc:
+    except INTEGRITY_ERRORS as exc:
         raise RoutineError("Could not add that exercise to the workout.") from exc
 
 
