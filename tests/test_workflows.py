@@ -21,6 +21,8 @@ from progress_calculations import (
     days_since_previous_workout,
     exercise_progress,
     history_dataframe,
+    latest_exercise_progress,
+    workout_comparison_dataframe,
 )
 from routine_management import (
     add_exercise_to_workout,
@@ -39,7 +41,9 @@ from workout_logging import (
     delete_logged_set,
     ExerciseLog,
     SetEntry,
+    WorkoutLogError,
     get_previous_result,
+    get_previous_results,
     get_session_review,
     list_sessions,
     save_completed_session,
@@ -106,7 +110,10 @@ class WorkflowTests(unittest.TestCase):
             session_day,
             datetime.combine(session_day, datetime.min.time()).replace(hour=18),
             [
-                ExerciseLog(bench_config, (SetEntry(60, 8), SetEntry(60, 7, "Rest-pause"))),
+                ExerciseLog(
+                    bench_config,
+                    (SetEntry(60, 8), SetEntry(60, 7, "Rest-pause", 2)),
+                ),
                 ExerciseLog(squat_config, (SetEntry(80, 6),)),
             ],
             notes="Good session",
@@ -138,6 +145,24 @@ class WorkflowTests(unittest.TestCase):
         previous = get_previous_result(bench.id, db_path=self.db_path)
         self.assertIsNotNone(previous)
         self.assertEqual(len(previous["sets"]), 2)
+        self.assertEqual(previous["sets"][1]["intensity_reps"], 2)
+        previous_results = get_previous_results(
+            [bench.id, squat.id], db_path=self.db_path
+        )
+        self.assertEqual(set(previous_results), {bench.id, squat.id})
+        self.assertEqual(previous_results[squat.id]["sets"][0]["reps"], 6)
+        latest = latest_exercise_progress(db_path=self.db_path)
+        self.assertEqual(set(latest["exercise"]), {"Bench Press", "Barbell Back Squat"})
+        comparison = workout_comparison_dataframe(
+            routine_id=routine_id,
+            workout_ids=[workout_id],
+            db_path=self.db_path,
+        )
+        self.assertEqual(len(comparison), 2)
+        self.assertEqual(
+            set(comparison["exercise"]),
+            {"Bench Press", "Barbell Back Squat"},
+        )
         progress = exercise_progress(bench.id, db_path=self.db_path)
         self.assertEqual(
             list(progress.columns),
@@ -285,6 +310,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(sample_exercises)
         self.assertTrue(all(item.target_sets == 1 for item in sample_exercises))
 
+        with sqlite3.connect(self.db_path) as connection:
+            connection.execute(
+                "UPDATE workout_exercises SET target_sets = 4 WHERE id = ?",
+                (sample_exercises[0].id,),
+            )
+            connection.execute(
+                "DELETE FROM schema_migrations WHERE version = ?",
+                ("v5_heavy_duty_fixed_one_set",),
+            )
+            connection.commit()
+        initialize_database(self.db_path, seed_sample_routine=False)
+        migrated = list_workout_exercises(sample_workout.id, self.db_path)
+        self.assertTrue(all(item.target_sets == 1 for item in migrated))
+
         copy_id = duplicate_routine(sample.id, "My Full Body", db_path=self.db_path)
         copied_workout = list_workouts(copy_id, db_path=self.db_path)[0]
         copied_exercises = list_workout_exercises(copied_workout.id, self.db_path)
@@ -320,20 +359,38 @@ class WorkflowTests(unittest.TestCase):
         )
         review = get_session_review(session_id, self.db_path)
         first_set, second_set = review["exercises"][0]["sets"]
+        with self.assertRaisesRegex(
+            WorkoutLogError, "Weight must use 0.25 kg increments"
+        ):
+            update_logged_set(
+                first_set["id"],
+                weight=55.6,
+                reps=9,
+                db_path=self.db_path,
+            )
         update_logged_set(
-            first_set["id"], weight=55, reps=9, notes="Corrected", db_path=self.db_path
+            first_set["id"],
+            weight=55.75,
+            reps=9,
+            intensity_method="Forced",
+            intensity_reps=2,
+            notes="Corrected",
+            db_path=self.db_path,
         )
         delete_logged_set(second_set["id"], db_path=self.db_path)
 
         corrected = get_session_review(session_id, self.db_path)["exercises"][0]["sets"]
         self.assertEqual(len(corrected), 1)
-        self.assertEqual(corrected[0]["weight"], 55)
+        self.assertEqual(corrected[0]["weight"], 55.75)
         self.assertEqual(corrected[0]["reps"], 9)
+        self.assertEqual(corrected[0]["intensity_method"], "Forced")
+        self.assertEqual(corrected[0]["intensity_reps"], 2)
         exported = history_dataframe(
             routine_id=routine_id, exercise_id=bench.id, db_path=self.db_path
         )
         self.assertEqual(len(exported), 1)
         self.assertEqual(exported.iloc[0]["notes"], "Corrected")
+        self.assertEqual(exported.iloc[0]["intensity_reps"], 2)
         self.assertNotIn("session_id", exported.columns)
 
         sessions = list_sessions(routine_id=routine_id, db_path=self.db_path)
@@ -341,9 +398,12 @@ class WorkflowTests(unittest.TestCase):
         workbook = load_workbook(BytesIO(workbook_bytes), data_only=False)
         self.assertEqual(workbook.sheetnames, ["Sessions", "Sets"])
         self.assertNotIn("Session ID", [cell.value for cell in workbook["Sessions"][1]])
-        self.assertNotIn("Session ID", [cell.value for cell in workbook["Sets"][1]])
+        set_headers = [cell.value for cell in workbook["Sets"][1]]
+        self.assertNotIn("Session ID", set_headers)
+        self.assertIn("Intensity Reps", set_headers)
         self.assertEqual(workbook["Sessions"]["D2"].value, "Export Test")
-        self.assertEqual(workbook["Sets"]["G2"].value, 55)
+        self.assertEqual(workbook["Sets"]["G2"].value, 55.75)
+        self.assertEqual(workbook["Sets"]["G2"].number_format, "0.0#")
         self.assertEqual(workbook["Sets"].freeze_panes, "A2")
 
         backup = create_database_backup(self.db_path)

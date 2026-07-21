@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime
 from typing import Callable
 
@@ -20,8 +21,9 @@ from init_db import initialize_database
 from export_management import build_history_workbook
 from progress_calculations import (
     days_since_previous_workout,
-    exercise_progress,
     history_dataframe,
+    latest_exercise_progress,
+    workout_comparison_dataframe,
 )
 from profile_management import (
     ProfileError,
@@ -50,7 +52,7 @@ from workout_logging import (
     ExerciseLog,
     SetEntry,
     WorkoutLogError,
-    get_previous_result,
+    get_previous_results,
     get_session_review,
     list_sessions,
     save_completed_session,
@@ -59,7 +61,36 @@ from workout_logging import (
 
 
 st.set_page_config(page_title="Workout Tracker", page_icon="🏋️", layout="wide", initial_sidebar_state="collapsed")
-initialize_database()
+APP_SCHEMA_VERSION = "v6_intensity_reps"
+
+
+@st.cache_resource(show_spinner=False)
+def initialize_app_database(database_identity: str, schema_version: str) -> None:
+    """Initialize and migrate the database once per schema and app process."""
+    del database_identity, schema_version
+    initialize_database()
+
+
+initialize_app_database(
+    os.getenv("TURSO_DATABASE_URL")
+    or os.getenv("WORKOUT_DB_PATH")
+    or "local-default",
+    APP_SCHEMA_VERSION,
+)
+
+INTENSITY_METHODS = (
+    "",
+    "Forced",
+    "Negative",
+    "Static holds",
+    "Forced negative",
+    "Partials",
+    "Rest-pause",
+    "Omni-contraction",
+)
+REP_OPTIONS = tuple(range(1, 101))
+INTENSITY_REP_OPTIONS = tuple(range(0, 101))
+
 
 st.markdown(
     """
@@ -106,10 +137,28 @@ def show_error(action: Callable[[], object]) -> bool:
         return False
 
 
+def format_weight(value: object) -> str:
+    """Show one decimal normally and two only for quarter-kilogram values."""
+    weight = float(value)
+    quarter_units = round(weight * 4)
+    decimals = 2 if quarter_units % 2 else 1
+    return f"{weight:.{decimals}f}"
+
+
 def format_sets(sets: list[dict[str, object]]) -> str:
     if not sets:
         return "No completed sets"
-    return " · ".join(f"{row['weight']:g} × {row['reps']}" for row in sets)
+    formatted: list[str] = []
+    for row in sets:
+        result = f"{format_weight(row['weight'])} × {row['reps']}"
+        method = str(row.get("intensity_method") or "")
+        intensity_reps = int(row.get("intensity_reps") or 0)
+        if method:
+            result += f" · {method}"
+            if intensity_reps:
+                result += f": {intensity_reps} reps"
+        formatted.append(result)
+    return " · ".join(formatted)
 
 
 def current_profile_id() -> int:
@@ -147,15 +196,85 @@ def format_datetime(value: object) -> str:
 
 
 def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
-    """Plot weight and reps together with independent, readable scales."""
+    """Plot weight bars and a reps line only on dates containing results."""
+    chart_frame = frame.copy()
+    chart_frame["date"] = pd.to_datetime(chart_frame["date"])
+    chart_frame = chart_frame.sort_values("date", kind="stable").reset_index(drop=True)
+    chart_frame["weight_display"] = chart_frame["weight"].map(format_weight)
+    weekday_short = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    weekday_full = (
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+        "Sunday",
+    )
+    chart_frame["weekday_short"] = chart_frame["date"].dt.dayofweek.map(
+        dict(enumerate(weekday_short))
+    )
+    chart_frame["weekday_full"] = chart_frame["date"].dt.dayofweek.map(
+        dict(enumerate(weekday_full))
+    )
+    chart_frame["calendar_week"] = (
+        chart_frame["date"].dt.isocalendar().week.astype(int)
+    )
+    chart_frame["calendar_week_label"] = chart_frame["calendar_week"].map(
+        lambda value: f"W{value:02d}"
+    )
+    chart_frame["date_axis_base"] = (
+        chart_frame["weekday_short"]
+        + " "
+        + chart_frame["date"].dt.strftime("%d/%m")
+        + " · "
+        + chart_frame["calendar_week_label"]
+    )
+    chart_frame["date_tooltip"] = chart_frame["date"].dt.strftime("%d/%m/%y")
+    chart_frame["date_occurrence"] = (
+        chart_frame.groupby("date_axis_base").cumcount() + 1
+    )
+    chart_frame["date_count"] = chart_frame.groupby("date_axis_base")[
+        "date_axis_base"
+    ].transform("count")
+    chart_frame["date_label"] = chart_frame.apply(
+        lambda row: row["date_axis_base"]
+        if row["date_count"] == 1
+        else f"{row['date_axis_base']} ({int(row['date_occurrence'])})",
+        axis=1,
+    )
+    date_order = chart_frame["date_label"].tolist()
+    chart_frame["chart_position"] = range(1, len(chart_frame) + 1)
+    chart_positions = chart_frame["chart_position"].tolist()
+    # Keep short histories centered and separated without squeezing the chart.
+    # Five virtual slots give two sessions distinct positions on desktop and phone.
+    padding_slots = max((5 - len(chart_positions)) / 2, 0)
+    x_domain = [
+        0.5 - padding_slots,
+        len(chart_positions) + 0.5 + padding_slots,
+    ]
+    axis_label_expression = f"{date_order!r}[datum.value - 1]"
     tooltip = [
-        alt.Tooltip("date:T", title="Date", format="%d/%m/%y"),
+        alt.Tooltip("date_tooltip:N", title="Date"),
+        alt.Tooltip("weekday_full:N", title="Day"),
+        alt.Tooltip("calendar_week_label:N", title="Calendar week"),
         alt.Tooltip("workout_name:N", title="Workout"),
-        alt.Tooltip("weight:Q", title="Weight"),
+        alt.Tooltip("weight_display:N", title="Weight"),
         alt.Tooltip("reps:Q", title="Reps"),
         alt.Tooltip("evaluation:N", title="Evaluation"),
     ]
-    x_axis = alt.X("date:T", title="Date", axis=alt.Axis(format="%d/%m/%y"))
+    x_axis = alt.X(
+        "chart_position:Q",
+        title="Date",
+        scale=alt.Scale(
+            domain=x_domain,
+            nice=False,
+            zero=False,
+        ),
+        axis=alt.Axis(
+            values=chart_positions,
+            labelExpr=axis_label_expression,
+            labelAngle=-35,
+            labelOverlap=False,
+            labelFlush=False,
+            tickMinStep=1,
+        ),
+    )
     evaluation_color = alt.Color(
         "evaluation:N",
         title="Evaluation",
@@ -164,29 +283,38 @@ def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
             range=["#64748B", "#16A34A", "#D97706", "#DC2626"],
         ),
     )
-    base = alt.Chart(frame).encode(x=x_axis)
+    base = alt.Chart(chart_frame).encode(x=x_axis)
     weight_y = alt.Y(
         "weight:Q",
         title="Weight",
-        scale=alt.Scale(zero=False),
-        axis=alt.Axis(titleColor="#2563EB", labelColor="#2563EB"),
+        scale=alt.Scale(zero=True),
+        axis=alt.Axis(
+            titleColor="#2563EB", labelColor="#2563EB", format="~f"
+        ),
     )
     reps_y = alt.Y(
         "reps:Q",
         title="Reps",
         scale=alt.Scale(zero=False),
-        axis=alt.Axis(titleColor="#EA580C", labelColor="#EA580C", orient="right"),
+        axis=alt.Axis(
+            titleColor="#EA580C",
+            labelColor="#EA580C",
+            orient="right",
+            tickMinStep=1,
+            format="d",
+        ),
     )
-    weight_line = base.mark_line(color="#2563EB", strokeWidth=3).encode(y=weight_y)
-    weight_points = base.mark_point(filled=True, size=95).encode(
-        y=weight_y, color=evaluation_color, tooltip=tooltip
-    )
-    reps_line = base.mark_line(color="#EA580C", strokeWidth=3, strokeDash=[6, 3]).encode(y=reps_y)
+    weight_bars = base.mark_bar(
+        color="#2563EB", opacity=0.58, size=22
+    ).encode(y=weight_y, tooltip=tooltip)
+    reps_line = base.mark_line(
+        color="#EA580C", strokeWidth=3
+    ).encode(y=reps_y)
     reps_points = base.mark_point(filled=True, size=95, shape="square").encode(
         y=reps_y, color=evaluation_color, tooltip=tooltip
     )
     return (
-        alt.layer(weight_line, weight_points, reps_line, reps_points)
+        alt.layer(weight_bars, reps_line, reps_points)
         .resolve_scale(y="independent")
         .properties(height=360)
     )
@@ -222,28 +350,20 @@ def dashboard_page() -> None:
     st.dataframe(frame[["Date", "Routine", "Workout", "Exercises", "Sets"]], hide_index=True, width="stretch")
 
     st.subheader("Latest exercise progress")
-    latest_rows: list[dict[str, object]] = []
-    for exercise in exercises:
-        progress = exercise_progress(exercise.id, profile_id=profile_id)
-        if progress.empty:
-            continue
-        latest = progress.iloc[-1]
-        latest_rows.append(
-            {
-                "Exercise": exercise.name,
-                "Date": latest["date"],
-                "Weight": latest["weight"],
-                "Reps": latest["reps"],
-                "Evaluation": latest["evaluation"],
-            }
-        )
-    if not latest_rows:
+    latest_frame = latest_exercise_progress(profile_id=profile_id)
+    if latest_frame.empty:
         st.info("Log another result for an exercise to start evaluating progress.")
         return
 
-    latest_frame = pd.DataFrame(latest_rows).sort_values(
-        ["Date", "Exercise"], ascending=[False, True]
-    )
+    latest_frame = latest_frame.rename(
+        columns={
+            "exercise": "Exercise",
+            "date": "Date",
+            "weight": "Weight",
+            "reps": "Reps",
+            "evaluation": "Evaluation",
+        }
+    ).sort_values(["Date", "Exercise"], ascending=[False, True])
     evaluations = latest_frame["Evaluation"].value_counts()
     summary_columns = st.columns(4)
     summary_columns[0].metric("Progress", int(evaluations.get("Progress", 0)))
@@ -251,22 +371,32 @@ def dashboard_page() -> None:
     summary_columns[2].metric("Regression", int(evaluations.get("Regression", 0)))
     summary_columns[3].metric("Baseline", int(evaluations.get("Baseline", 0)))
     latest_frame["Date"] = latest_frame["Date"].dt.strftime("%d/%m/%y")
+    latest_frame["Weight"] = latest_frame["Weight"].map(format_weight)
     latest_frame["Evaluation"] = latest_frame["Evaluation"].map(
         {
-            "Progress": "🟢 Progress",
-            "No progress": "🟠 No progress",
-            "Regression": "🔴 Regression",
-            "Baseline": "⚪ Baseline",
+            "Progress": "Progress",
+            "No progress": "No progress",
+            "Regression": "Regression",
+            "Baseline": "Baseline",
         }
     )
-    st.dataframe(latest_frame, hide_index=True, width="stretch")
+    st.dataframe(
+        latest_frame[["Exercise", "Date", "Weight", "Reps", "Evaluation"]],
+        hide_index=True,
+        width="stretch",
+    )
 
 
 def profiles_page() -> None:
     st.title("Profiles")
     st.caption("Profiles keep each person's workout history and progress separate.")
-    create_tab, manage_tab = st.tabs(["Create profile", "Manage profiles"])
-    with create_tab:
+    mode = st.segmented_control(
+        "Profile action",
+        ["Create profile", "Manage profiles"],
+        default="Manage profiles",
+        key="profile_action",
+    )
+    if mode == "Create profile":
         with st.form("create_profile", clear_on_submit=True):
             name = st.text_input("Profile name")
             notes = st.text_area("Notes", placeholder="Optional coaching or profile notes")
@@ -275,7 +405,7 @@ def profiles_page() -> None:
             st.success("Profile created.")
             st.rerun()
 
-    with manage_tab:
+    if mode == "Manage profiles":
         profiles = list_profiles()
         for profile in profiles:
             status = "Active" if profile.active else "Archived"
@@ -299,8 +429,13 @@ def profiles_page() -> None:
 
 def exercises_page() -> None:
     st.title("Exercise library")
-    create_tab, manage_tab = st.tabs(["Create exercise", "Manage library"])
-    with create_tab:
+    mode = st.segmented_control(
+        "Exercise action",
+        ["Create exercise", "Manage library"],
+        default="Manage library",
+        key="exercise_action",
+    )
+    if mode == "Create exercise":
         with st.form("create_exercise", clear_on_submit=True):
             name = st.text_input("Exercise name")
             col1, col2 = st.columns(2)
@@ -312,7 +447,7 @@ def exercises_page() -> None:
             st.success("Exercise created.")
             st.rerun()
 
-    with manage_tab:
+    if mode == "Manage library":
         exercises = list_exercises()
         if not exercises:
             st.info("The exercise library is empty.")
@@ -355,8 +490,13 @@ def exercises_page() -> None:
 def routines_page() -> None:
     st.title("Routine builder")
     routines = list_routines()
-    create_tab, edit_tab = st.tabs(["Create routine", "Edit routine"])
-    with create_tab:
+    mode = st.segmented_control(
+        "Routine action",
+        ["Create routine", "Edit routine"],
+        default="Edit routine",
+        key="routine_action",
+    )
+    if mode == "Create routine":
         with st.form("create_routine", clear_on_submit=True):
             name = st.text_input("Routine name")
             description = st.text_area("Description")
@@ -384,7 +524,7 @@ def routines_page() -> None:
                 st.success("Routine duplicated. Its history starts empty.")
                 st.rerun()
 
-    with edit_tab:
+    if mode == "Edit routine":
         if not routines:
             st.info("Create a routine first.")
             return
@@ -462,10 +602,10 @@ def routines_page() -> None:
                 exercise_id = st.selectbox(
                     "Exercise", list(exercise_labels), format_func=exercise_labels.get
                 )
-                col1, col2, col3 = st.columns(3)
+                col1, col2 = st.columns(2)
                 minimum = col1.number_input("Minimum reps", 1, 100, 6)
                 maximum = col2.number_input("Maximum reps", 1, 100, 10)
-                target_sets = col3.number_input("Working sets", 1, 20, 1)
+                st.caption("Heavy Duty target: 1 working set")
                 instructions = st.text_input("Optional instructions")
                 add = st.form_submit_button("Add to workout")
             if add and show_error(
@@ -474,7 +614,7 @@ def routines_page() -> None:
                     exercise_id,
                     target_min_reps=int(minimum),
                     target_max_reps=int(maximum),
-                    target_sets=int(target_sets),
+                    target_sets=1,
                     instructions=instructions,
                 )
             ):
@@ -488,7 +628,10 @@ def routines_page() -> None:
         if not configured:
             st.info("Add at least one exercise before logging this workout.")
         for index, item in enumerate(configured):
-            with st.expander(f"{item.position}. {item.exercise_name} · {item.target_sets} × {item.target_min_reps}–{item.target_max_reps}"):
+            with st.expander(
+                f"{item.position}. {item.exercise_name} · "
+                f"1 × {item.target_min_reps}–{item.target_max_reps}"
+            ):
                 left, middle, right = st.columns([1, 1, 5])
                 if left.button("↑", key=f"up_{item.id}", disabled=index == 0):
                     if show_error(lambda current=item: move_workout_exercise(current.id, -1)):
@@ -498,10 +641,10 @@ def routines_page() -> None:
                         st.rerun()
                 right.caption(f"{item.primary_muscle_group} · {item.equipment}")
                 with st.form(f"targets_{item.id}"):
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     new_min = col1.number_input("Minimum reps", 1, 100, item.target_min_reps)
                     new_max = col2.number_input("Maximum reps", 1, 100, item.target_max_reps)
-                    new_sets = col3.number_input("Working sets", 1, 20, item.target_sets)
+                    st.caption("Heavy Duty target: 1 working set")
                     new_instructions = st.text_input("Instructions", item.instructions)
                     save_targets = st.form_submit_button("Save targets")
                 if save_targets and show_error(
@@ -509,7 +652,7 @@ def routines_page() -> None:
                         current.id,
                         target_min_reps=int(new_min),
                         target_max_reps=int(new_max),
-                        target_sets=int(new_sets),
+                        target_sets=1,
                         instructions=new_instructions,
                     )
                 ):
@@ -521,86 +664,188 @@ def routines_page() -> None:
 
 
 def log_workout_page() -> None:
-    st.title("Log workout")
+    st.title("Workout")
+    st.caption("Choose a workout, record completed sets, then save or cancel the draft.")
     profile_id = current_profile_id()
     routines = list_routines(active_only=True)
     if not routines:
         st.info("Create and activate a routine before logging a workout.")
         return
     routine_labels = {item.id: item.name for item in routines}
-    routine_id = st.selectbox("Routine", list(routine_labels), format_func=routine_labels.get)
+    routine_id = st.selectbox(
+        "Routine", list(routine_labels), format_func=routine_labels.get, key="log_routine_id"
+    )
     workouts = list_workouts(routine_id, active_only=True)
     if not workouts:
         st.info("This routine has no active workouts.")
         return
     workout_labels = {item.id: item.name for item in workouts}
-    workout_id = st.selectbox("Workout", list(workout_labels), format_func=workout_labels.get)
+    workout_id = st.selectbox(
+        "Workout", list(workout_labels), format_func=workout_labels.get, key="log_workout_id"
+    )
     configured = list_workout_exercises(workout_id)
     if not configured:
-        st.warning("This workout has no exercises. Add some in the routine builder.")
+        st.warning("This workout has no exercises. Add some in Manage.")
         return
 
+    date_key = f"log_date_{workout_id}"
+    time_key = f"log_time_{workout_id}"
+    notes_key = f"log_notes_{workout_id}"
     col1, col2 = st.columns(2)
-    session_date = col1.date_input("Workout date", date.today())
-    completion_time = col2.time_input("Completion time", datetime.now().time().replace(microsecond=0))
-    session_notes = st.text_area("Session notes", placeholder="Optional notes about the workout")
+    session_date = col1.date_input("Workout date", date.today(), key=date_key)
+    completion_time = col2.time_input(
+        "Completion time",
+        datetime.now().time().replace(microsecond=0),
+        key=time_key,
+    )
+    session_notes = st.text_area(
+        "Session notes",
+        placeholder="Optional notes about the workout",
+        key=notes_key,
+    )
 
-    edited_frames: dict[int, pd.DataFrame] = {}
+    previous_results = get_previous_results(
+        (item.exercise_id for item in configured), profile_id=profile_id
+    )
+    draft_sets: dict[int, list[dict[str, object]]] = {}
+
+    def clear_draft_widgets() -> None:
+        """Remove every widget value belonging to the current workout draft."""
+        for configured_item in configured:
+            key_prefix = f"{workout_id}_{configured_item.id}_1"
+            for field in (
+                "done", "weight", "reps", "intensity", "intensity_reps",
+                "set_notes",
+            ):
+                st.session_state.pop(f"log_{field}_{key_prefix}", None)
+
     for item in configured:
         st.subheader(f"{item.position}. {item.exercise_name}")
-        set_label = "set" if item.target_sets == 1 else "sets"
         st.caption(
-            f"Target: {item.target_sets} {set_label} of {item.target_min_reps}–{item.target_max_reps} reps"
-            + (f" · {item.instructions}" if item.instructions else "")
+            f"Target: 1 working set of {item.target_min_reps}-{item.target_max_reps} reps"
+            + (f" | {item.instructions}" if item.instructions else "")
         )
-        previous = get_previous_result(item.exercise_id, profile_id=profile_id)
+        previous = previous_results.get(item.exercise_id)
+        previous_sets = list(previous["sets"]) if previous else []
         if previous:
             st.info(
-                f"Previous · {format_date(previous['workout_date'])} · {previous['workout_name']}: "
-                f"{format_sets(previous['sets'])}"
+                f"Previous | {format_date(previous['workout_date'])} | {previous['workout_name']}: "
+                f"{format_sets(previous_sets)}"
             )
         else:
             st.caption("No previous result for this exercise.")
-        initial = pd.DataFrame(
-            [
-                {"Done": False, "Weight": 0.0, "Reps": item.target_min_reps, "Intensity method": "", "Notes": ""}
-                for _ in range(1)
-            ]
-        )
-        edited_frames[item.id] = st.data_editor(
-            initial,
-            key=f"log_sets_{workout_id}_{item.id}",
-            num_rows="dynamic",
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "Done": st.column_config.CheckboxColumn(required=True),
-                "Weight": st.column_config.NumberColumn(min_value=0.0, step=0.5, required=True),
-                "Reps": st.column_config.NumberColumn(min_value=1, step=1, required=True),
-                "Intensity method": st.column_config.TextColumn(help="Optional: drop set, rest-pause, tempo, etc."),
-            },
-        )
 
-    with st.container(key="save_workout_action"):
-        save_workout = st.button(
-            "Complete and save workout", type="primary", width="stretch"
+        previous_set = previous_sets[0] if previous_sets else {}
+        default_weight = round(
+            float(previous_set.get("weight", 0.0) or 0.0) * 4
+        ) / 4
+        default_reps = int(
+            previous_set.get("reps", item.target_min_reps)
+            or item.target_min_reps
         )
+        default_reps = min(max(default_reps, REP_OPTIONS[0]), REP_OPTIONS[-1])
+        key_prefix = f"{workout_id}_{item.id}_1"
+        with st.container(border=True):
+            st.markdown("**Working set**")
+            done_col, weight_col, reps_col = st.columns([0.9, 1.4, 1.1])
+            completed = done_col.checkbox(
+                "Completed",
+                key=f"log_done_{key_prefix}",
+            )
+            weight = weight_col.number_input(
+                "Weight",
+                min_value=0.0,
+                max_value=1000.0,
+                value=default_weight,
+                step=0.25,
+                format="%g",
+                key=f"log_weight_{key_prefix}",
+                help="Use the minus and plus buttons; each step is 0.25 kg.",
+            )
+            weight_col.caption(f"{format_weight(weight)} kg")
+            reps = reps_col.selectbox(
+                "Reps",
+                REP_OPTIONS,
+                index=REP_OPTIONS.index(default_reps),
+                key=f"log_reps_{key_prefix}",
+            )
+            intensity_col, intensity_reps_col = st.columns([2, 1])
+            intensity = intensity_col.selectbox(
+                "Intensity method",
+                INTENSITY_METHODS,
+                key=f"log_intensity_{key_prefix}",
+                format_func=lambda value: value or "None",
+            )
+            intensity_reps = intensity_reps_col.selectbox(
+                "Intensity reps",
+                INTENSITY_REP_OPTIONS,
+                key=f"log_intensity_reps_{key_prefix}",
+                disabled=not bool(intensity),
+                format_func=lambda value: "Not recorded" if value == 0 else str(value),
+                help="Reps performed using the selected intensity method.",
+            )
+            set_notes = st.text_input(
+                "Set notes",
+                placeholder="Optional",
+                key=f"log_set_notes_{key_prefix}",
+            )
+        draft_sets[item.id] = [
+            {
+                "completed": completed,
+                "weight": weight,
+                "reps": reps,
+                "intensity_method": intensity,
+                "intensity_reps": intensity_reps if intensity else 0,
+                "notes": set_notes,
+            }
+        ]
+
+    cancel_state_key = f"cancel_workout_{workout_id}"
+    with st.container(key="save_workout_action"):
+        save_col, cancel_col = st.columns([2, 1])
+        save_workout = save_col.button(
+            "Complete and save", type="primary", width="stretch"
+        )
+        request_cancel = cancel_col.button(
+            "Cancel workout", width="stretch"
+        )
+    if request_cancel:
+        st.session_state[cancel_state_key] = True
+        st.rerun()
+
+    if st.session_state.get(cancel_state_key):
+        st.warning("Cancel this workout and discard every unsaved value?")
+        discard_col, keep_col = st.columns(2)
+        discard = discard_col.button(
+            "Discard workout", type="primary", width="stretch"
+        )
+        keep = keep_col.button("Keep logging", width="stretch")
+        if keep:
+            st.session_state.pop(cancel_state_key, None)
+            st.rerun()
+        if discard:
+            clear_draft_widgets()
+            for key in (date_key, time_key, notes_key, cancel_state_key):
+                st.session_state.pop(key, None)
+            st.session_state["workout_cancelled"] = True
+            st.session_state["navigate_after_rerun"] = "Home"
+            st.rerun()
+
     if save_workout:
         logs: list[ExerciseLog] = []
         for item in configured:
-            entries: list[SetEntry] = []
-            frame = edited_frames[item.id]
-            for row in frame.to_dict("records"):
-                if bool(row.get("Done")):
-                    entries.append(
-                        SetEntry(
-                            weight=float(row["Weight"]),
-                            reps=int(row["Reps"]),
-                            intensity_method=str(row.get("Intensity method") or ""),
-                            notes=str(row.get("Notes") or ""),
-                        )
-                    )
-            logs.append(ExerciseLog(item.id, tuple(entries)))
+            entries = tuple(
+                SetEntry(
+                    weight=round(float(row["weight"]), 2),
+                    reps=int(row["reps"]),
+                    intensity_method=str(row["intensity_method"] or ""),
+                    intensity_reps=int(row["intensity_reps"]),
+                    notes=str(row["notes"] or ""),
+                )
+                for row in draft_sets[item.id]
+                if bool(row["completed"])
+            )
+            logs.append(ExerciseLog(item.id, entries))
         completed_at = datetime.combine(session_date, completion_time)
         saved_id: list[int] = []
         if show_error(
@@ -617,25 +862,35 @@ def log_workout_page() -> None:
             )
         ):
             st.session_state["last_saved_session"] = saved_id[0]
-            for item in configured:
-                st.session_state.pop(f"log_sets_{workout_id}_{item.id}", None)
-            st.success(f"Workout saved. Session #{saved_id[0]} is available in History.")
+            clear_draft_widgets()
+            for key in (date_key, time_key, notes_key, cancel_state_key):
+                st.session_state.pop(key, None)
+            st.session_state["workout_saved"] = True
+            st.session_state["navigate_after_rerun"] = "History"
+            st.rerun()
 
 
 def history_page() -> None:
     st.title("History")
+    st.caption("Find and review completed workout sessions.")
     profile_id = current_profile_id()
     routines = list_routines()
     exercises = list_exercises()
     routine_options = {0: "All routines", **{item.id: item.name for item in routines}}
     col1, col2 = st.columns(2)
-    routine_id = col1.selectbox("Routine", list(routine_options), format_func=routine_options.get)
+    routine_id = col1.selectbox(
+        "Routine", list(routine_options), format_func=routine_options.get
+    )
     workouts = list_workouts(routine_id) if routine_id else []
     workout_options = {0: "All workouts", **{item.id: item.name for item in workouts}}
-    workout_id = col2.selectbox("Workout", list(workout_options), format_func=workout_options.get)
+    workout_id = col2.selectbox(
+        "Workout", list(workout_options), format_func=workout_options.get
+    )
     exercise_options = {0: "All exercises", **{item.id: item.name for item in exercises}}
     col3, col4, col5 = st.columns(3)
-    exercise_id = col3.selectbox("Exercise", list(exercise_options), format_func=exercise_options.get)
+    exercise_id = col3.selectbox(
+        "Exercise", list(exercise_options), format_func=exercise_options.get
+    )
     date_from = col4.date_input("From", value=None)
     date_to = col5.date_input("To", value=None)
     sessions = list_sessions(
@@ -646,159 +901,317 @@ def history_page() -> None:
         date_from=date_from,
         date_to=date_to,
     )
-    filtered_history = history_dataframe(
-        profile_id=profile_id,
-        routine_id=routine_id or None,
-        workout_id=workout_id or None,
-        exercise_id=exercise_id or None,
-        date_from=date_from,
-        date_to=date_to,
-    )
-    csv_history = filtered_history.copy()
-    if not csv_history.empty:
-        csv_history["date"] = pd.to_datetime(csv_history["date"]).dt.strftime("%d/%m/%y")
-    st.subheader("Export and archive")
-    excel_bytes = build_history_workbook(sessions, filtered_history)
-    export_col1, export_col2, export_col3 = st.columns(3)
-    export_col1.download_button(
-        "Download Excel",
-        data=excel_bytes,
-        file_name=f"workout_history_{date.today().isoformat()}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        disabled=not sessions,
-        width="stretch",
-    )
-    export_col2.download_button(
-        "Download CSV",
-        data=csv_history.to_csv(index=False).encode("utf-8"),
-        file_name=f"workout_history_{date.today().isoformat()}.csv",
-        mime="text/csv",
-        disabled=filtered_history.empty,
-        width="stretch",
-    )
-    export_col3.download_button(
-        "Archive full database",
-        data=create_database_backup(),
-        file_name=f"workout_tracker_backup_{date.today().isoformat()}.db",
-        mime="application/vnd.sqlite3",
-        width="stretch",
-        help="Complete local backup including exercises, routines, configuration, and history.",
-    )
+
+    with st.expander("Export and archive"):
+        st.caption("Downloads are prepared only when requested, keeping this page faster.")
+        signature = (
+            profile_id,
+            routine_id,
+            workout_id,
+            exercise_id,
+            str(date_from),
+            str(date_to),
+            len(sessions),
+        )
+        prepare = st.button(
+            "Prepare downloads",
+            disabled=not sessions,
+            key="prepare_history_downloads",
+        )
+        if prepare:
+            with st.spinner("Preparing files..."):
+                filtered_history = history_dataframe(
+                    profile_id=profile_id,
+                    routine_id=routine_id or None,
+                    workout_id=workout_id or None,
+                    exercise_id=exercise_id or None,
+                    date_from=date_from,
+                    date_to=date_to,
+                )
+                csv_history = filtered_history.copy()
+                if not csv_history.empty:
+                    csv_history["date"] = pd.to_datetime(
+                        csv_history["date"]
+                    ).dt.strftime("%d/%m/%y")
+                st.session_state["prepared_history_downloads"] = {
+                    "signature": signature,
+                    "excel": build_history_workbook(sessions, filtered_history),
+                    "csv": csv_history.to_csv(index=False).encode("utf-8"),
+                    "backup": create_database_backup(),
+                }
+        prepared = st.session_state.get("prepared_history_downloads")
+        if prepared and prepared.get("signature") == signature:
+            export_col1, export_col2, export_col3 = st.columns(3)
+            export_col1.download_button(
+                "Download Excel",
+                data=prepared["excel"],
+                file_name=f"workout_history_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch",
+            )
+            export_col2.download_button(
+                "Download CSV",
+                data=prepared["csv"],
+                file_name=f"workout_history_{date.today().isoformat()}.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+            export_col3.download_button(
+                "Archive database",
+                data=prepared["backup"],
+                file_name=f"workout_tracker_backup_{date.today().isoformat()}.db",
+                mime="application/vnd.sqlite3",
+                width="stretch",
+            )
+
     if not sessions:
         st.info("No sessions match these filters.")
-    else:
-        session_labels = {
-            int(row["id"]): f"{format_date(row['workout_date'])} · {row['routine_name']} / {row['workout_name']} · {row['set_count']} sets"
-            for row in sessions
-        }
-        default_id = st.session_state.pop("last_saved_session", None)
-        ids = list(session_labels)
-        default_index = ids.index(default_id) if default_id in ids else 0
-        selected_id = st.selectbox(
-            "Review completed session",
-            ids,
-            index=default_index,
-            format_func=session_labels.get,
-        )
-        review = get_session_review(selected_id)
-        st.markdown(f"### {review['workout_name']} · {format_date(review['workout_date'])}")
-        st.caption(
-            f"Routine: {review['routine_name']} · Completed: {format_datetime(review['completed_at'])}"
-        )
-        if review["notes"]:
-            st.write(review["notes"])
-        for item in review["exercises"]:
-            with st.expander(
-                f"{item['position']}. {item['exercise_name']} · {len(item['sets'])} completed sets"
-            ):
-                st.caption(
-                    f"Historic target: {item['target_sets']} × {item['target_min_reps']}–{item['target_max_reps']}"
-                )
-                if item["instructions"]:
-                    st.caption(item["instructions"])
-                if item["sets"]:
-                    st.caption("Correct a value or delete an incorrectly logged set.")
-                    for set_row in item["sets"]:
-                        with st.form(f"edit_logged_set_{set_row['id']}"):
-                            col1, col2 = st.columns(2)
-                            corrected_weight = col1.number_input(
-                                "Weight", min_value=0.0, value=float(set_row["weight"]), step=0.5
-                            )
-                            corrected_reps = col2.number_input(
-                                "Reps", min_value=1, value=int(set_row["reps"]), step=1
-                            )
-                            corrected_method = st.text_input(
-                                "Intensity method", value=set_row["intensity_method"]
-                            )
-                            corrected_notes = st.text_input("Set notes", value=set_row["notes"])
-                            save_col, delete_col = st.columns(2)
-                            save_set = save_col.form_submit_button("Save set")
-                            delete_set = delete_col.form_submit_button("Delete set")
-                        if save_set and show_error(
-                            lambda row=set_row: update_logged_set(
-                                row["id"],
-                                weight=float(corrected_weight),
-                                reps=int(corrected_reps),
-                                intensity_method=corrected_method,
-                                notes=corrected_notes,
-                            )
-                        ):
-                            st.success("Set corrected.")
-                            st.rerun()
-                        if delete_set and show_error(
-                            lambda row=set_row: delete_logged_set(row["id"])
-                        ):
-                            st.success("Set deleted.")
-                            st.rerun()
-                else:
-                    st.caption("Skipped in this session.")
-
-    st.divider()
-    st.subheader("Exercise progress")
-    progress_options = {item.id: item.name for item in exercises}
-    if not progress_options:
-        st.caption("No exercises available.")
         return
-    progress_id = st.selectbox(
-        "Choose exercise", list(progress_options), format_func=progress_options.get, key="progress_exercise"
+
+    session_labels = {
+        int(row["id"]): (
+            f"{format_date(row['workout_date'])} | "
+            f"{row['routine_name']} / {row['workout_name']} | "
+            f"{row['set_count']} sets"
+        )
+        for row in sessions
+    }
+    default_id = st.session_state.pop("last_saved_session", None)
+    ids = list(session_labels)
+    default_index = ids.index(default_id) if default_id in ids else 0
+    selected_id = st.selectbox(
+        "Review completed session",
+        ids,
+        index=default_index,
+        format_func=session_labels.get,
     )
-    progress = exercise_progress(progress_id, profile_id=profile_id)
-    if progress.empty:
-        st.caption("No logged sets for this exercise yet.")
+    review = get_session_review(selected_id)
+    st.markdown(f"### {review['workout_name']} | {format_date(review['workout_date'])}")
+    st.caption(
+        f"Routine: {review['routine_name']} | Completed: "
+        f"{format_datetime(review['completed_at'])}"
+    )
+    if review["notes"]:
+        st.write(review["notes"])
+    for item in review["exercises"]:
+        with st.expander(
+            f"{item['position']}. {item['exercise_name']} | "
+            f"{len(item['sets'])} completed sets"
+        ):
+            st.caption(
+                f"Historic target: {item['target_sets']} x "
+                f"{item['target_min_reps']}-{item['target_max_reps']}"
+            )
+            if item["instructions"]:
+                st.caption(item["instructions"])
+            if not item["sets"]:
+                st.caption("Skipped in this session.")
+                continue
+            st.caption("Correct a value or delete an incorrectly logged set.")
+            for set_row in item["sets"]:
+                with st.form(f"edit_logged_set_{set_row['id']}"):
+                    col1, col2 = st.columns(2)
+                    corrected_weight = col1.number_input(
+                        "Weight",
+                        min_value=0.0,
+                        value=round(float(set_row["weight"]) * 4) / 4,
+                        step=0.25,
+                        format="%g",
+                    )
+                    col1.caption(f"{format_weight(corrected_weight)} kg")
+                    current_reps = int(set_row["reps"])
+                    corrected_rep_options = list(REP_OPTIONS)
+                    if current_reps not in corrected_rep_options:
+                        corrected_rep_options.append(current_reps)
+                        corrected_rep_options.sort()
+                    corrected_reps = col2.selectbox(
+                        "Reps",
+                        corrected_rep_options,
+                        index=corrected_rep_options.index(current_reps),
+                    )
+                    current_method = str(set_row["intensity_method"] or "")
+                    corrected_method_options = list(INTENSITY_METHODS)
+                    if current_method not in corrected_method_options:
+                        corrected_method_options.append(current_method)
+                    intensity_col, intensity_reps_col = st.columns([2, 1])
+                    corrected_method = intensity_col.selectbox(
+                        "Intensity method",
+                        corrected_method_options,
+                        index=corrected_method_options.index(current_method),
+                        format_func=lambda value: value or "None",
+                    )
+                    current_intensity_reps = int(set_row.get("intensity_reps") or 0)
+                    corrected_intensity_reps = intensity_reps_col.selectbox(
+                        "Intensity reps",
+                        INTENSITY_REP_OPTIONS,
+                        index=INTENSITY_REP_OPTIONS.index(current_intensity_reps),
+                        disabled=not bool(corrected_method),
+                        format_func=lambda value: (
+                            "Not recorded" if value == 0 else str(value)
+                        ),
+                    )
+                    corrected_notes = st.text_input(
+                        "Set notes", value=set_row["notes"]
+                    )
+                    save_col, delete_col = st.columns(2)
+                    save_set = save_col.form_submit_button("Save set")
+                    delete_set = delete_col.form_submit_button("Delete set")
+                if save_set and show_error(
+                    lambda row=set_row: update_logged_set(
+                        row["id"],
+                        weight=round(float(corrected_weight), 2),
+                        reps=int(corrected_reps),
+                        intensity_method=corrected_method,
+                        intensity_reps=(
+                            int(corrected_intensity_reps) if corrected_method else 0
+                        ),
+                        notes=corrected_notes,
+                    )
+                ):
+                    st.success("Set corrected.")
+                    st.rerun()
+                if delete_set and show_error(
+                    lambda row=set_row: delete_logged_set(row["id"])
+                ):
+                    st.success("Set deleted.")
+                    st.rerun()
+
+
+def comparison_page() -> None:
+    st.title("Compare")
+    st.caption(
+        "Compare completed workouts and exercises inside one routine. "
+        "Weight and reps stay together."
+    )
+    profile_id = current_profile_id()
+    routines = list_routines()
+    if not routines:
+        st.info("Create a routine first.")
+        return
+    routine_labels = {item.id: item.name for item in routines}
+    routine_id = st.selectbox(
+        "Routine",
+        list(routine_labels),
+        format_func=routine_labels.get,
+        key="compare_routine",
+    )
+    workouts = list_workouts(routine_id)
+    if not workouts:
+        st.info("This routine has no workouts.")
+        return
+    workout_labels = {item.id: item.name for item in workouts}
+    selected_workouts = st.multiselect(
+        "Workouts",
+        list(workout_labels),
+        default=list(workout_labels),
+        format_func=workout_labels.get,
+        key=f"compare_workouts_{routine_id}",
+        help="Only workouts from the selected routine can be compared.",
+    )
+    if not selected_workouts:
+        st.info("Select at least one workout.")
+        return
+
+    comparison = workout_comparison_dataframe(
+        routine_id=routine_id,
+        workout_ids=selected_workouts,
+        profile_id=profile_id,
+    )
+    if comparison.empty:
+        st.info("No completed sessions are available for this selection.")
+        return
+
+    comparison = comparison.sort_values(["date", "completed_at", "exercise"])
+    session_index = comparison[
+        ["session_id", "date", "completed_at", "workout"]
+    ].drop_duplicates("session_id").copy()
+    session_index["base_label"] = (
+        session_index["date"].dt.strftime("%d/%m/%y")
+        + " | " + session_index["workout"].astype(str)
+    )
+    session_index["occurrence"] = session_index.groupby("base_label").cumcount() + 1
+    session_index["duplicates"] = session_index.groupby("base_label")[
+        "session_id"
+    ].transform("count")
+    session_index["label"] = session_index.apply(
+        lambda row: row["base_label"] if row["duplicates"] == 1
+        else f"{row['base_label']} ({int(row['occurrence'])})",
+        axis=1,
+    )
+    comparison["Session"] = comparison["session_id"].map(
+        session_index.set_index("session_id")["label"]
+    )
+    metrics = st.columns(3)
+    metrics[0].metric("Sessions", int(comparison["session_id"].nunique()))
+    metrics[1].metric("Workouts", int(comparison["workout_id"].nunique()))
+    metrics[2].metric("Exercises", int(comparison["exercise_id"].nunique()))
+
+    st.subheader("Sessions side by side")
+    comparison["Result"] = comparison.apply(
+        lambda row: f"{format_weight(row['weight'])} x {int(row['reps'])}", axis=1
+    )
+    session_order = comparison["Session"].drop_duplicates().tolist()
+    pivot = comparison.pivot_table(
+        index="exercise",
+        columns="Session",
+        values="Result",
+        aggfunc="first",
+    ).reindex(columns=session_order)
+    pivot.index.name = "Exercise"
+    st.dataframe(pivot, width="stretch")
+
+    st.subheader("Exercise trends")
+    exercise_names = comparison["exercise"].drop_duplicates().tolist()
+    selected_exercises = st.multiselect(
+        "Exercises to chart",
+        exercise_names,
+        default=exercise_names[: min(4, len(exercise_names))],
+        key=f"compare_exercises_{routine_id}",
+    )
+    if not selected_exercises:
+        st.caption("Select one or more exercises to display their trends.")
+        return
+    for exercise_name in selected_exercises:
+        exercise_frame = comparison[
+            comparison["exercise"] == exercise_name
+        ].rename(columns={"workout": "workout_name"})
+        st.markdown(f"#### {exercise_name}")
+        latest = exercise_frame.iloc[-1]
+        st.caption(
+            f"Latest: {format_weight(latest['weight'])} x {int(latest['reps'])} | "
+            f"{latest['evaluation']} | {format_date(latest['date'])}"
+        )
+        st.altair_chart(
+            progress_chart(
+                exercise_frame[
+                    ["date", "workout_name", "weight", "reps", "evaluation"]
+                ]
+            ),
+            width="stretch",
+        )
+
+
+def manage_page() -> None:
+    section = st.segmented_control(
+        "Manage",
+        ["Routines", "Exercises", "Profiles"],
+        default="Routines",
+        key="manage_section",
+    )
+    if section == "Exercises":
+        exercises_page()
+    elif section == "Profiles":
+        profiles_page()
     else:
-        latest_evaluation = str(progress.iloc[-1]["evaluation"])
-        latest_message = (
-            f"Latest result: {latest_evaluation} · "
-            f"{progress.iloc[-1]['weight']:g} weight × {int(progress.iloc[-1]['reps'])} reps"
-        )
-        if latest_evaluation == "Progress":
-            st.success(latest_message)
-        elif latest_evaluation == "Regression":
-            st.error(latest_message)
-        else:
-            st.info(latest_message)
-        st.caption("Blue line: weight · Orange dashed line: reps · Point colour: evaluation")
-        st.altair_chart(progress_chart(progress), width="stretch")
-        display_progress = progress.rename(
-            columns={
-                "date": "Date",
-                "workout_name": "Workout",
-                "weight": "Weight",
-                "reps": "Reps",
-                "evaluation": "Evaluation",
-            }
-        )
-        display_progress["Date"] = display_progress["Date"].dt.strftime("%d/%m/%y")
-        st.dataframe(display_progress, hide_index=True, width="stretch")
+        routines_page()
 
 
 PAGES = {
-    "Dashboard": dashboard_page,
-    "Log workout": log_workout_page,
+    "Home": dashboard_page,
+    "Workout": log_workout_page,
+    "Compare": comparison_page,
     "History": history_page,
-    "Exercises": exercises_page,
-    "Routines": routines_page,
-    "Profiles": profiles_page,
+    "Manage": manage_page,
 }
 
 active_profiles = list_profiles(active_only=True)
@@ -809,15 +1222,26 @@ if not active_profiles:
 profile_options = {profile.id: profile.name for profile in active_profiles}
 if st.session_state.get("active_profile_id") not in profile_options:
     st.session_state["active_profile_id"] = default_profile_id()
-st.selectbox(
+profile_col, context_col = st.columns([2, 3])
+profile_col.selectbox(
     "Training profile",
     list(profile_options),
     format_func=profile_options.get,
     key="active_profile_id",
 )
+context_col.caption("Private cloud workout log | synced across your devices")
+pending_page = st.session_state.pop("navigate_after_rerun", None)
+if pending_page in PAGES:
+    st.session_state["page_nav"] = pending_page
 page_name = st.radio(
-    "Navigate", list(PAGES), horizontal=True, label_visibility="collapsed"
+    "Navigate",
+    list(PAGES),
+    horizontal=True,
+    label_visibility="collapsed",
+    key="page_nav",
 )
-st.caption("V3 profiles · SQLite")
-
+if st.session_state.pop("workout_cancelled", False):
+    st.info("Workout cancelled. Nothing was saved.")
+if st.session_state.pop("workout_saved", False):
+    st.success("Workout saved. The completed session is shown below.")
 PAGES[page_name]()

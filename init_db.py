@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS logged_sets (
     weight REAL NOT NULL CHECK (weight >= 0),
     reps INTEGER NOT NULL CHECK (reps > 0),
     intensity_method TEXT NOT NULL DEFAULT '',
+    intensity_reps INTEGER NOT NULL DEFAULT 0 CHECK (intensity_reps >= 0),
     notes TEXT NOT NULL DEFAULT '',
     UNIQUE (session_exercise_id, set_number)
 );
@@ -207,6 +208,31 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         )
         connection.execute(
             "INSERT INTO schema_migrations (version) VALUES (?)", (one_set_version,)
+        )
+
+    heavy_duty_version = "v5_heavy_duty_fixed_one_set"
+    if not _migration_applied(connection, heavy_duty_version):
+        connection.execute(
+            "UPDATE workout_exercises SET target_sets = 1, updated_at = CURRENT_TIMESTAMP"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            (heavy_duty_version,),
+        )
+
+    intensity_reps_version = "v6_intensity_reps"
+    if not _migration_applied(connection, intensity_reps_version):
+        logged_set_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(logged_sets)")
+        }
+        if "intensity_reps" not in logged_set_columns:
+            connection.execute(
+                "ALTER TABLE logged_sets ADD COLUMN intensity_reps "
+                "INTEGER NOT NULL DEFAULT 0 CHECK (intensity_reps >= 0)"
+            )
+        connection.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            (intensity_reps_version,),
         )
 
     profile_version = "v3_training_profiles"

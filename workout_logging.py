@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from math import isclose
 from pathlib import Path
 from typing import Iterable
 
@@ -21,6 +22,7 @@ class SetEntry:
     weight: float
     reps: int
     intensity_method: str = ""
+    intensity_reps: int = 0
     notes: str = ""
 
 
@@ -118,15 +120,16 @@ def save_completed_session(
                     """
                     INSERT INTO logged_sets
                         (session_exercise_id, set_number, weight, reps,
-                         intensity_method, notes)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                         intensity_method, intensity_reps, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         session_exercise_id,
                         set_number,
-                        entry.weight,
+                        round(entry.weight, 2),
                         entry.reps,
                         entry.intensity_method.strip(),
+                        entry.intensity_reps,
                         entry.notes.strip(),
                     ),
                 )
@@ -136,8 +139,16 @@ def save_completed_session(
 def _validate_set(entry: SetEntry) -> None:
     if entry.weight < 0:
         raise WorkoutLogError("Weight cannot be negative.")
+    if not isclose(entry.weight * 4, round(entry.weight * 4), abs_tol=1e-9):
+        raise WorkoutLogError("Weight must use 0.25 kg increments.")
     if entry.reps < 1:
         raise WorkoutLogError("Reps must be at least 1.")
+    if entry.intensity_reps < 0:
+        raise WorkoutLogError("Intensity reps cannot be negative.")
+    if entry.intensity_reps and not entry.intensity_method.strip():
+        raise WorkoutLogError(
+            "Select an intensity method before recording intensity reps."
+        )
 
 
 def update_logged_set(
@@ -146,20 +157,34 @@ def update_logged_set(
     weight: float,
     reps: int,
     intensity_method: str = "",
+    intensity_reps: int = 0,
     notes: str = "",
     db_path: Path | str | None = None,
 ) -> None:
     """Correct the values of one set in a completed session."""
-    entry = SetEntry(weight, reps, intensity_method, notes)
+    entry = SetEntry(
+        weight=weight,
+        reps=reps,
+        intensity_method=intensity_method,
+        intensity_reps=intensity_reps,
+        notes=notes,
+    )
     _validate_set(entry)
     with transaction(db_path) as connection:
         cursor = connection.execute(
             """
             UPDATE logged_sets
-            SET weight = ?, reps = ?, intensity_method = ?, notes = ?
-            WHERE id = ?
+            SET weight = ?, reps = ?, intensity_method = ?, intensity_reps = ?,
+                notes = ? WHERE id = ?
             """,
-            (weight, reps, intensity_method.strip(), notes.strip(), set_id),
+            (
+                round(weight, 2),
+                reps,
+                intensity_method.strip(),
+                intensity_reps,
+                notes.strip(),
+                set_id,
+            ),
         )
         if cursor.rowcount == 0:
             raise WorkoutLogError("Logged set not found.")
@@ -200,7 +225,8 @@ def get_previous_result(
     """Return the most recent logged result for an exercise."""
     query = """
         SELECT ws.id AS session_id, ws.workout_date, ws.workout_name,
-               ls.set_number, ls.weight, ls.reps, ls.intensity_method
+               ls.set_number, ls.weight, ls.reps, ls.intensity_method,
+               ls.intensity_reps
         FROM session_exercises se
         JOIN workout_sessions ws ON ws.id = se.session_id
         JOIN logged_sets ls ON ls.session_exercise_id = se.id
@@ -220,7 +246,8 @@ def get_previous_result(
             return None
         sets = connection.execute(
             """
-            SELECT ls.set_number, ls.weight, ls.reps, ls.intensity_method, ls.notes
+            SELECT ls.set_number, ls.weight, ls.reps, ls.intensity_method,
+                   ls.intensity_reps, ls.notes
             FROM session_exercises se
             JOIN logged_sets ls ON ls.session_exercise_id = se.id
             WHERE se.session_id = ? AND se.exercise_id = ?
@@ -234,6 +261,65 @@ def get_previous_result(
         "workout_name": first["workout_name"],
         "sets": [dict(row) for row in sets],
     }
+
+
+def get_previous_results(
+    exercise_ids: Iterable[int],
+    *,
+    profile_id: int | None = None,
+    db_path: Path | str | None = None,
+) -> dict[int, dict[str, object]]:
+    """Return the latest session result for several exercises in one query."""
+    selected_ids = tuple(dict.fromkeys(int(item) for item in exercise_ids))
+    if not selected_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in selected_ids)
+    query = f"""
+        SELECT se.exercise_id, ws.id AS session_id, ws.workout_date,
+               ws.workout_name, ws.completed_at, ls.set_number,
+               ls.weight, ls.reps, ls.intensity_method,
+               ls.intensity_reps, ls.notes
+        FROM session_exercises se
+        JOIN workout_sessions ws ON ws.id = se.session_id
+        JOIN logged_sets ls ON ls.session_exercise_id = se.id
+        WHERE se.exercise_id IN ({placeholders})
+    """
+    params: list[object] = list(selected_ids)
+    if profile_id is not None:
+        query += " AND ws.profile_id = ?"
+        params.append(profile_id)
+    query += (
+        " ORDER BY se.exercise_id, ws.completed_at DESC, ws.id DESC, "
+        "ls.set_number"
+    )
+    with connection_scope(db_path) as connection:
+        rows = connection.execute(query, params).fetchall()
+
+    results: dict[int, dict[str, object]] = {}
+    for row in rows:
+        exercise_id = int(row["exercise_id"])
+        current = results.get(exercise_id)
+        if current is None:
+            current = {
+                "session_id": int(row["session_id"]),
+                "workout_date": row["workout_date"],
+                "workout_name": row["workout_name"],
+                "sets": [],
+            }
+            results[exercise_id] = current
+        if int(current["session_id"]) != int(row["session_id"]):
+            continue
+        current["sets"].append(
+            {
+                "set_number": row["set_number"],
+                "weight": row["weight"],
+                "reps": row["reps"],
+                "intensity_method": row["intensity_method"],
+                "intensity_reps": row["intensity_reps"],
+                "notes": row["notes"],
+            }
+        )
+    return results
 
 
 def list_sessions(
@@ -303,7 +389,9 @@ def get_session_review(
         result_exercises: list[dict[str, object]] = []
         for exercise in exercises:
             sets = connection.execute(
-                "SELECT id, set_number, weight, reps, intensity_method, notes FROM logged_sets WHERE session_exercise_id = ? ORDER BY set_number",
+                "SELECT id, set_number, weight, reps, intensity_method, "
+                "intensity_reps, notes FROM logged_sets "
+                "WHERE session_exercise_id = ? ORDER BY set_number",
                 (exercise["id"],),
             ).fetchall()
             exercise_data = dict(exercise)

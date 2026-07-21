@@ -65,6 +65,7 @@ def build_history_workbook(
         "Weight",
         "Reps",
         "Intensity Method",
+        "Intensity Reps",
         "Set Notes",
     ]
     set_columns = [
@@ -77,6 +78,7 @@ def build_history_workbook(
         "weight",
         "reps",
         "intensity_method",
+        "intensity_reps",
         "notes",
     ]
     set_rows = []
@@ -85,6 +87,8 @@ def build_history_workbook(
         values[0] = _as_date(row.get("date"))
         set_rows.append(values)
     _write_sheet(sets_sheet, set_headers, set_rows, "SetsTable")
+    for cell in sets_sheet["G"][1:]:
+        cell.number_format = "0.0#"
 
     output = BytesIO()
     workbook.save(output)
