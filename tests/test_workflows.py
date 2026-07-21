@@ -38,6 +38,7 @@ from routine_management import (
     update_workout_exercise,
 )
 from workout_logging import (
+    delete_completed_session,
     delete_logged_set,
     ExerciseLog,
     SetEntry,
@@ -403,7 +404,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Intensity Reps", set_headers)
         self.assertEqual(workbook["Sessions"]["D2"].value, "Export Test")
         self.assertEqual(workbook["Sets"]["G2"].value, 55.75)
-        self.assertEqual(workbook["Sets"]["G2"].number_format, "0.0#")
+        self.assertEqual(workbook["Sets"]["G2"].number_format, "0.##")
         self.assertEqual(workbook["Sets"].freeze_panes, "A2")
 
         backup = create_database_backup(self.db_path)
@@ -414,6 +415,37 @@ class WorkflowTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM workout_sessions"
             ).fetchone()[0]
         self.assertEqual(session_count, 1)
+
+        with self.assertRaisesRegex(WorkoutLogError, "Completed workout not found"):
+            delete_completed_session(
+                session_id,
+                profile_id=999,
+                db_path=self.db_path,
+            )
+        self.assertEqual(
+            len(list_sessions(routine_id=routine_id, db_path=self.db_path)),
+            1,
+        )
+        delete_completed_session(session_id, db_path=self.db_path)
+        self.assertEqual(
+            list_sessions(routine_id=routine_id, db_path=self.db_path),
+            [],
+        )
+        with sqlite3.connect(self.db_path) as connection:
+            session_exercise_count = connection.execute(
+                "SELECT COUNT(*) FROM session_exercises"
+            ).fetchone()[0]
+            logged_set_count = connection.execute(
+                "SELECT COUNT(*) FROM logged_sets"
+            ).fetchone()[0]
+            workout_count = connection.execute(
+                "SELECT COUNT(*) FROM workouts WHERE id = ?", (workout_id,)
+            ).fetchone()[0]
+        self.assertEqual(session_exercise_count, 0)
+        self.assertEqual(logged_set_count, 0)
+        self.assertEqual(workout_count, 1)
+        with self.assertRaisesRegex(WorkoutLogError, "Completed workout not found"):
+            delete_completed_session(session_id, db_path=self.db_path)
 
 
 if __name__ == "__main__":

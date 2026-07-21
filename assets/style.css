@@ -1,0 +1,102 @@
+/* Small, maintainable presentation layer for the native Streamlit UI. */
+:root {
+  --workout-accent: #f97316;
+  --workout-blue: #3b82f6;
+  --workout-panel: rgba(20, 26, 34, 0.92);
+  --workout-border: #2a3441;
+}
+
+.stMainBlockContainer {
+  max-width: 1180px;
+  padding-top: 1.25rem;
+  padding-bottom: 4rem;
+}
+
+h1 {
+  letter-spacing: -0.035em;
+  margin-bottom: 0.2rem;
+}
+
+h2, h3, h4 {
+  letter-spacing: -0.018em;
+}
+
+[data-testid="stMetric"] {
+  background: linear-gradient(145deg, rgba(24, 32, 42, 0.98), rgba(15, 21, 29, 0.98));
+  border: 1px solid var(--workout-border);
+  border-radius: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+[data-testid="stMetricLabel"] {
+  color: #9ba8b8;
+}
+
+[data-testid="stExpander"] {
+  background: var(--workout-panel);
+  border-color: var(--workout-border);
+  border-radius: 0.9rem;
+  overflow: hidden;
+}
+
+[data-testid="stForm"],
+[data-testid="stVerticalBlockBorderWrapper"] {
+  border-radius: 1rem;
+}
+
+.stButton > button,
+.stDownloadButton > button {
+  min-height: 2.75rem;
+  font-weight: 650;
+}
+
+.st-key-profile_bar {
+  background: linear-gradient(90deg, rgba(24, 32, 42, 0.98), rgba(18, 24, 32, 0.98));
+  border: 1px solid var(--workout-border);
+  border-radius: 1rem;
+  padding: 0.35rem 0.8rem 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.st-key-workout_selector {
+  background: var(--workout-panel);
+  border: 1px solid var(--workout-border);
+  border-radius: 1rem;
+  padding: 0.65rem 0.8rem 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+[data-testid="stDataFrame"] {
+  border: 1px solid var(--workout-border);
+  border-radius: 0.9rem;
+  overflow: hidden;
+}
+
+@media (max-width: 700px) {
+  .stMainBlockContainer {
+    padding: 0.8rem 0.7rem 4rem;
+  }
+
+  h1 {
+    font-size: 2rem !important;
+  }
+
+  h2 {
+    font-size: 1.45rem !important;
+  }
+
+  [data-testid="stMetric"] {
+    padding: 0.7rem 0.75rem;
+  }
+
+  .stButton > button,
+  .stDownloadButton > button {
+    min-height: 3rem;
+  }
+
+  .st-key-profile_bar,
+  .st-key-workout_selector {
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+  }
+}

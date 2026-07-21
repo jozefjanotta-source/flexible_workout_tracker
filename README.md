@@ -13,7 +13,7 @@ Version 4 can run locally with SQLite or use Turso Cloud for persistent access f
 - The optional `Sample Full Body` routine is starter content and can be edited or deactivated.
 - Heavy Duty mode fixes every exercise at exactly one working set; older multi-set history remains preserved.
 - The phone-friendly set card uses a reps dropdown, a 0.25 kg weight stepper, and fixed intensity-method choices instead of a spreadsheet-style input row.
-- Weights show one decimal normally and two only for quarter-kilogram values such as 80.25 or 80.75.
+- Weights use only the decimals they need: `80`, `80.5`, `80.25`, or `80.75`.
 - Each working set can optionally record how many reps used the selected intensity method; regular reps remain the progress measure.
 - Completed sets can be corrected or deleted without changing their session snapshots.
 - Routine duplication copies active templates without copying history.
@@ -23,7 +23,11 @@ Version 4 can run locally with SQLite or use Turso Cloud for persistent access f
 - A persistent profile selector helps ensure each workout is logged for the correct person.
 - The same database layer supports local SQLite and an optional synced Turso Cloud database.
 - An unsaved workout can be cancelled with a two-step confirmation; cancellation writes nothing to history.
+- A completed workout can be permanently deleted from History with a two-step confirmation, without changing its routine template.
 - The Compare page keeps selections within one routine and shows workout sessions and exercises side by side.
+- Native top navigation keeps daily pages visible and groups routines, exercises, and profiles under Manage.
+- Workout logging uses compact exercise expanders with a completion indicator, while History keeps filters in a popover.
+- A responsive dark theme, touch-friendly controls, progress badges, and compact cards keep the app readable on phones and desktops.
 - Previous results and dashboard progress are loaded in bulk instead of opening one cloud connection per exercise.
 - Exports and full backups are prepared only when requested, reducing navigation delays.
 
@@ -36,7 +40,11 @@ Version 4 can run locally with SQLite or use Turso Cloud for persistent access f
 - `routine_management.py` — routines, workouts, exercise targets, and ordering
 - `workout_logging.py` — completed sessions, sets, previous results, and reviews
 - `progress_calculations.py` — history data and progress calculations
-- `app.py` — Streamlit user interface
+- `app.py` — Streamlit entrypoint and top navigation
+- `streamlit_ui.py` — shared Streamlit page implementation
+- `ui_pages/` — lightweight page entrypoints for native navigation
+- `assets/style.css` — responsive presentation styles
+- `.streamlit/config.toml` — native Streamlit theme settings
 - `tests/test_workflows.py` — main service-level workflow tests
 
 ## Setup

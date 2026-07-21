@@ -88,7 +88,7 @@ def build_history_workbook(
         set_rows.append(values)
     _write_sheet(sets_sheet, set_headers, set_rows, "SetsTable")
     for cell in sets_sheet["G"][1:]:
-        cell.number_format = "0.0#"
+        cell.number_format = "0.##"
 
     output = BytesIO()
     workbook.save(output)

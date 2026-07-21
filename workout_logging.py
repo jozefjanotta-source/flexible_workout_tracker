@@ -215,6 +215,24 @@ def delete_logged_set(
             )
 
 
+def delete_completed_session(
+    session_id: int,
+    *,
+    profile_id: int | None = None,
+    db_path: Path | str | None = None,
+) -> None:
+    """Delete one completed session and its cascaded exercise/set records."""
+    query = "DELETE FROM workout_sessions WHERE id = ?"
+    params: list[object] = [session_id]
+    if profile_id is not None:
+        query += " AND profile_id = ?"
+        params.append(profile_id)
+    with transaction(db_path) as connection:
+        cursor = connection.execute(query, params)
+        if cursor.rowcount == 0:
+            raise WorkoutLogError("Completed workout not found.")
+
+
 def get_previous_result(
     exercise_id: int,
     *,

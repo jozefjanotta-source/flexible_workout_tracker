@@ -1,0 +1,18 @@
+[theme]
+base = "dark"
+primaryColor = "#F97316"
+backgroundColor = "#0B0F14"
+secondaryBackgroundColor = "#141A22"
+textColor = "#F3F6FA"
+linkColor = "#60A5FA"
+borderColor = "#2A3441"
+dataframeBorderColor = "#2A3441"
+baseRadius = "large"
+buttonRadius = "large"
+showWidgetBorder = true
+font = "sans-serif"
+headingFontWeights = [750, 700, 650, 600, 600, 600]
+
+[theme.sidebar]
+backgroundColor = "#10161E"
+secondaryBackgroundColor = "#18202A"
