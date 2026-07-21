@@ -63,6 +63,7 @@ from workout_logging import (
 
 
 APP_SCHEMA_VERSION = "v6_intensity_reps"
+DRAFT_WIDGET_VERSION = 2
 
 
 @st.cache_resource(show_spinner=False)
@@ -90,7 +91,7 @@ INTENSITY_METHODS = (
     "Omni-contraction",
 )
 REP_OPTIONS = tuple(range(1, 101))
-INTENSITY_REP_OPTIONS = tuple(range(0, 101))
+INTENSITY_REP_OPTIONS = tuple(range(0, 21))
 
 
 st.markdown(
@@ -688,6 +689,11 @@ def routines_page() -> None:
                         st.rerun()
 
 
+def _draft_key_prefix(workout_id: int, workout_exercise_id: int) -> str:
+    """Return a versioned key so changed defaults do not reuse stale drafts."""
+    return f"v{DRAFT_WIDGET_VERSION}_{workout_id}_{workout_exercise_id}_1"
+
+
 def _workout_exercise_card(
     item: WorkoutExercise,
     *,
@@ -696,16 +702,7 @@ def _workout_exercise_card(
 ) -> dict[str, object]:
     """Render one compact, phone-friendly exercise entry card."""
     previous_sets = list(previous["sets"]) if previous else []
-    previous_set = previous_sets[0] if previous_sets else {}
-    default_weight = round(
-        float(previous_set.get("weight", 0.0) or 0.0) * 4
-    ) / 4
-    default_reps = int(
-        previous_set.get("reps", item.target_min_reps)
-        or item.target_min_reps
-    )
-    default_reps = min(max(default_reps, REP_OPTIONS[0]), REP_OPTIONS[-1])
-    key_prefix = f"{workout_id}_{item.id}_1"
+    key_prefix = _draft_key_prefix(workout_id, item.id)
     completed_key = f"log_done_{key_prefix}"
     completed_before_render = bool(st.session_state.get(completed_key, False))
     status = " ✓" if completed_before_render else ""
@@ -732,17 +729,21 @@ def _workout_exercise_card(
             "Weight",
             min_value=0.0,
             max_value=1000.0,
-            value=default_weight,
+            value=None,
             step=0.25,
             format="%g",
+            placeholder="Enter weight",
             key=f"log_weight_{key_prefix}",
             help="Use the minus and plus buttons; each step is 0.25 kg.",
         )
-        weight_col.caption(f"{format_weight(weight)} kg")
+        weight_col.caption(
+            f"{format_weight(weight)} kg" if weight is not None else "Not entered"
+        )
         reps = reps_col.selectbox(
             "Reps",
             REP_OPTIONS,
-            index=REP_OPTIONS.index(default_reps),
+            index=None,
+            placeholder="Select reps",
             key=f"log_reps_{key_prefix}",
         )
         intensity_col, intensity_reps_col = st.columns([2, 1])
@@ -833,7 +834,7 @@ def log_workout_page() -> None:
     def clear_draft_widgets() -> None:
         """Remove every widget value belonging to the current workout draft."""
         for configured_item in configured:
-            key_prefix = f"{workout_id}_{configured_item.id}_1"
+            key_prefix = _draft_key_prefix(workout_id, configured_item.id)
             for field in (
                 "done", "weight", "reps", "intensity", "intensity_reps",
                 "set_notes",
@@ -841,7 +842,11 @@ def log_workout_page() -> None:
                 st.session_state.pop(f"log_{field}_{key_prefix}", None)
 
     completed_count = sum(
-        bool(st.session_state.get(f"log_done_{workout_id}_{item.id}_1", False))
+        bool(
+            st.session_state.get(
+                f"log_done_{_draft_key_prefix(workout_id, item.id)}", False
+            )
+        )
         for item in configured
     )
     st.progress(
@@ -889,6 +894,19 @@ def log_workout_page() -> None:
             st.rerun()
 
     if save_workout:
+        incomplete_exercises = [
+            item.exercise_name
+            for item in configured
+            for row in draft_sets[item.id]
+            if bool(row["completed"])
+            and (row["weight"] is None or row["reps"] is None)
+        ]
+        if incomplete_exercises:
+            st.error(
+                "Enter weight and reps for each completed exercise: "
+                + ", ".join(incomplete_exercises)
+            )
+            return
         logs: list[ExerciseLog] = []
         for item in configured:
             entries = tuple(
@@ -1161,7 +1179,10 @@ def history_page() -> None:
                         index=corrected_method_options.index(current_method),
                         format_func=lambda value: value or "None",
                     )
-                    current_intensity_reps = int(set_row.get("intensity_reps") or 0)
+                    current_intensity_reps = min(
+                        int(set_row.get("intensity_reps") or 0),
+                        INTENSITY_REP_OPTIONS[-1],
+                    )
                     corrected_intensity_reps = intensity_reps_col.selectbox(
                         "Intensity reps",
                         INTENSITY_REP_OPTIONS,

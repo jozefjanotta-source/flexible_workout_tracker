@@ -61,6 +61,17 @@ class WorkflowTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_intensity_reps_cannot_exceed_twenty(self) -> None:
+        with self.assertRaisesRegex(WorkoutLogError, "cannot exceed 20"):
+            update_logged_set(
+                -1,
+                weight=50,
+                reps=8,
+                intensity_method="Rest-pause",
+                intensity_reps=21,
+                db_path=self.db_path,
+            )
+
     def test_exercise_create_edit_and_deactivate(self) -> None:
         exercise_id = create_exercise(
             "Custom Press", "Shoulders", "Dumbbells", db_path=self.db_path

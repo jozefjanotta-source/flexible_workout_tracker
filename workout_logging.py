@@ -145,6 +145,8 @@ def _validate_set(entry: SetEntry) -> None:
         raise WorkoutLogError("Reps must be at least 1.")
     if entry.intensity_reps < 0:
         raise WorkoutLogError("Intensity reps cannot be negative.")
+    if entry.intensity_reps > 20:
+        raise WorkoutLogError("Intensity reps cannot exceed 20.")
     if entry.intensity_reps and not entry.intensity_method.strip():
         raise WorkoutLogError(
             "Select an intensity method before recording intensity reps."

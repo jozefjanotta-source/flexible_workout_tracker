@@ -73,6 +73,11 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 self.assertTrue(intensity_reps.disabled)
                 self.assertEqual(
+                    list(intensity_reps.options),
+                    ["Not recorded"]
+                    + [str(value) for value in range(1, 21)],
+                )
+                self.assertEqual(
                     list(reps.options),
                     [str(value) for value in range(1, 101)],
                 )
@@ -123,6 +128,18 @@ class AppSmokeTests(unittest.TestCase):
                 app_path = Path(__file__).resolve().parents[1] / "app.py"
                 app = AppTest.from_file(str(app_path), default_timeout=20).run()
                 app.switch_page("ui_pages/workout.py").run()
+                self.assertIsNone(
+                    next(
+                        widget for widget in app.number_input
+                        if widget.label == "Weight"
+                    ).value
+                )
+                self.assertIsNone(
+                    next(
+                        widget for widget in app.selectbox
+                        if widget.label == "Reps"
+                    ).value
+                )
                 app.checkbox[0].set_value(True)
                 weight_input = next(
                     widget for widget in app.number_input
@@ -186,6 +203,22 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 # Start a fresh browser simulation after save cleared draft widget keys.
                 app = AppTest.from_file(str(app_path), default_timeout=20).run()
+                app.switch_page("ui_pages/workout.py").run()
+                self.assertTrue(
+                    any(message.value.startswith("Previous |") for message in app.info)
+                )
+                self.assertIsNone(
+                    next(
+                        widget for widget in app.number_input
+                        if widget.label == "Weight"
+                    ).value
+                )
+                self.assertIsNone(
+                    next(
+                        widget for widget in app.selectbox
+                        if widget.label == "Reps"
+                    ).value
+                )
                 app.switch_page("ui_pages/history.py").run()
                 saved_intensity_reps = next(
                     widget for widget in app.selectbox
