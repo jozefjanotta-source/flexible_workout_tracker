@@ -16,7 +16,13 @@ from database import create_database_backup
 from exercise_management import create_exercise, list_exercises, update_exercise
 from export_management import build_history_workbook
 from init_db import initialize_database
-from profile_management import ProfileError, create_profile, list_profiles, update_profile
+from profile_management import (
+    ProfileError,
+    create_profile,
+    list_profiles,
+    set_active_routine,
+    update_profile,
+)
 from progress_calculations import (
     days_since_previous_workout,
     exercise_progress,
@@ -33,8 +39,10 @@ from routine_management import (
     list_workout_exercises,
     list_workouts,
     move_workout_exercise,
+    next_workout_status,
     remove_exercise_from_workout,
     update_routine,
+    update_workout,
     update_workout_exercise,
 )
 from workout_logging import (
@@ -204,6 +212,87 @@ class WorkflowTests(unittest.TestCase):
             "schema_migrations",
         }
         self.assertTrue(expected.issubset(tables))
+
+    def test_profile_routine_rotation_frequency_and_inactive_workouts(self) -> None:
+        profile_id = create_profile("Rotation profile", db_path=self.db_path)
+        routine_id = create_routine(
+            "A B C", frequency_days=6, db_path=self.db_path
+        )
+        workout_a = create_workout(routine_id, "Workout A", db_path=self.db_path)
+        workout_b = create_workout(routine_id, "Workout B", db_path=self.db_path)
+        workout_c = create_workout(routine_id, "Workout C", db_path=self.db_path)
+        set_active_routine(profile_id, routine_id, db_path=self.db_path)
+
+        first = next_workout_status(
+            profile_id, today=date(2026, 8, 8), db_path=self.db_path
+        )
+        self.assertIsNotNone(first)
+        self.assertEqual(first.workout_id, workout_a)
+        self.assertTrue(first.is_due)
+        self.assertIsNone(first.due_date)
+
+        exercise = list_exercises(active_only=True, db_path=self.db_path)[0]
+        config_a = add_exercise_to_workout(
+            workout_a,
+            exercise.id,
+            target_min_reps=6,
+            target_max_reps=10,
+            target_sets=1,
+            db_path=self.db_path,
+        )
+        completed = date(2026, 8, 4)
+        save_completed_session(
+            routine_id,
+            workout_a,
+            completed,
+            datetime(2026, 8, 4, 18),
+            [ExerciseLog(config_a, (SetEntry(50, 8),))],
+            profile_id=profile_id,
+            db_path=self.db_path,
+        )
+        update_workout(
+            workout_b,
+            name="Workout B",
+            description="",
+            active=False,
+            db_path=self.db_path,
+        )
+
+        next_status = next_workout_status(
+            profile_id, today=date(2026, 8, 8), db_path=self.db_path
+        )
+        self.assertEqual(next_status.workout_id, workout_c)
+        self.assertEqual(next_status.days_since_last_workout, 4)
+        self.assertEqual(next_status.due_date, date(2026, 8, 10))
+        self.assertFalse(next_status.is_due)
+
+        config_c = add_exercise_to_workout(
+            workout_c,
+            exercise.id,
+            target_min_reps=6,
+            target_max_reps=10,
+            target_sets=1,
+            db_path=self.db_path,
+        )
+        save_completed_session(
+            routine_id,
+            workout_c,
+            date(2026, 8, 10),
+            datetime(2026, 8, 10, 18),
+            [ExerciseLog(config_c, (SetEntry(52.5, 8),))],
+            profile_id=profile_id,
+            db_path=self.db_path,
+        )
+        wrapped = next_workout_status(
+            profile_id, today=date(2026, 8, 16), db_path=self.db_path
+        )
+        self.assertEqual(wrapped.workout_id, workout_a)
+        self.assertTrue(wrapped.is_due)
+
+        other_profile = create_profile("Separate rotation", db_path=self.db_path)
+        set_active_routine(other_profile, routine_id, db_path=self.db_path)
+        other_status = next_workout_status(other_profile, db_path=self.db_path)
+        self.assertEqual(other_status.workout_id, workout_a)
 
     def test_profiles_keep_history_and_progress_separate(self) -> None:
         jozef_id = create_profile("Jozef", db_path=self.db_path)
