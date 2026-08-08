@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL COLLATE NOCASE UNIQUE,
     notes TEXT NOT NULL DEFAULT '',
+    active_routine_id INTEGER REFERENCES routines(id),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS routines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL COLLATE NOCASE UNIQUE,
     description TEXT NOT NULL DEFAULT '',
+    frequency_days INTEGER NOT NULL DEFAULT 6 CHECK (frequency_days > 0),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -268,6 +270,38 @@ def _apply_migrations(connection: sqlite3.Connection) -> None:
         )
         connection.execute(
             "INSERT INTO schema_migrations (version) VALUES (?)", (profile_version,)
+        )
+
+    rotation_version = "v7_configurable_routine_rotation"
+    if not _migration_applied(connection, rotation_version):
+        routine_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(routines)")
+        }
+        if "frequency_days" not in routine_columns:
+            connection.execute(
+                "ALTER TABLE routines ADD COLUMN frequency_days "
+                "INTEGER NOT NULL DEFAULT 6 CHECK (frequency_days > 0)"
+            )
+        profile_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(profiles)")
+        }
+        if "active_routine_id" not in profile_columns:
+            connection.execute(
+                "ALTER TABLE profiles ADD COLUMN active_routine_id "
+                "INTEGER REFERENCES routines(id)"
+            )
+        first_routine = connection.execute(
+            "SELECT id FROM routines WHERE active = 1 ORDER BY id LIMIT 1"
+        ).fetchone()
+        if first_routine is not None:
+            connection.execute(
+                "UPDATE profiles SET active_routine_id = ? "
+                "WHERE active_routine_id IS NULL",
+                (first_routine["id"],),
+            )
+        connection.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            (rotation_version,),
         )
 
 

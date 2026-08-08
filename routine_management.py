@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from database import INTEGRITY_ERRORS, connection_scope, transaction
@@ -18,6 +19,7 @@ class Routine:
     id: int
     name: str
     description: str
+    frequency_days: int
     active: bool
 
 
@@ -46,22 +48,46 @@ class WorkoutExercise:
     instructions: str
 
 
+@dataclass(frozen=True)
+class NextWorkoutStatus:
+    routine_id: int
+    routine_name: str
+    frequency_days: int
+    workout_id: int
+    workout_name: str
+    last_workout_name: str | None
+    last_completed_at: datetime | None
+    days_since_last_workout: int | None
+    due_date: date | None
+    is_due: bool
+
+
 def create_routine(
     name: str,
     description: str = "",
     *,
     active: bool = True,
+    frequency_days: int = 6,
     db_path: Path | str | None = None,
 ) -> int:
     if not name.strip():
         raise RoutineError("Routine name is required.")
+    if frequency_days < 1:
+        raise RoutineError("Frequency must be at least 1 day.")
     try:
         with transaction(db_path) as connection:
             cursor = connection.execute(
-                "INSERT INTO routines (name, description, active) VALUES (?, ?, ?)",
-                (name.strip(), description.strip(), int(active)),
+                "INSERT INTO routines (name, description, frequency_days, active) VALUES (?, ?, ?, ?)",
+                (name.strip(), description.strip(), frequency_days, int(active)),
             )
-            return int(cursor.lastrowid)
+            routine_id = int(cursor.lastrowid)
+            if active:
+                connection.execute(
+                    "UPDATE profiles SET active_routine_id = ?, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE active_routine_id IS NULL",
+                    (routine_id,),
+                )
+            return routine_id
     except INTEGRITY_ERRORS as exc:
         raise RoutineError(f"A routine named '{name.strip()}' already exists.") from exc
 
@@ -78,13 +104,13 @@ def duplicate_routine(
     try:
         with transaction(db_path) as connection:
             source = connection.execute(
-                "SELECT description FROM routines WHERE id = ?", (routine_id,)
+                "SELECT description, frequency_days FROM routines WHERE id = ?", (routine_id,)
             ).fetchone()
             if source is None:
                 raise RoutineError("Source routine not found.")
             routine_cursor = connection.execute(
-                "INSERT INTO routines (name, description, active) VALUES (?, ?, 1)",
-                (new_name.strip(), source["description"]),
+                "INSERT INTO routines (name, description, frequency_days, active) VALUES (?, ?, ?, 1)",
+                (new_name.strip(), source["description"], source["frequency_days"]),
             )
             new_routine_id = int(routine_cursor.lastrowid)
             workouts = connection.execute(
@@ -133,18 +159,21 @@ def update_routine(
     name: str,
     description: str,
     active: bool,
+    frequency_days: int = 6,
     db_path: Path | str | None = None,
 ) -> None:
     if not name.strip():
         raise RoutineError("Routine name is required.")
+    if frequency_days < 1:
+        raise RoutineError("Frequency must be at least 1 day.")
     try:
         with transaction(db_path) as connection:
             cursor = connection.execute(
                 """
-                UPDATE routines SET name = ?, description = ?, active = ?,
+                UPDATE routines SET name = ?, description = ?, frequency_days = ?, active = ?,
                     updated_at = CURRENT_TIMESTAMP WHERE id = ?
                 """,
-                (name.strip(), description.strip(), int(active), routine_id),
+                (name.strip(), description.strip(), frequency_days, int(active), routine_id),
             )
             if cursor.rowcount == 0:
                 raise RoutineError("Routine not found.")
@@ -155,14 +184,89 @@ def update_routine(
 def list_routines(
     *, active_only: bool = False, db_path: Path | str | None = None
 ) -> list[Routine]:
-    query = "SELECT id, name, description, active FROM routines"
+    query = "SELECT id, name, description, frequency_days, active FROM routines"
     params: tuple[object, ...] = ()
     if active_only:
         query += " WHERE active = 1"
     query += " ORDER BY name COLLATE NOCASE"
     with connection_scope(db_path) as connection:
         rows = connection.execute(query, params).fetchall()
-    return [Routine(row["id"], row["name"], row["description"], bool(row["active"])) for row in rows]
+    return [
+        Routine(
+            row["id"], row["name"], row["description"],
+            row["frequency_days"], bool(row["active"])
+        )
+        for row in rows
+    ]
+
+
+def next_workout_status(
+    profile_id: int,
+    *,
+    today: date | None = None,
+    db_path: Path | str | None = None,
+) -> NextWorkoutStatus | None:
+    """Return the next active workout in the selected profile's routine rotation."""
+    current_date = today or date.today()
+    with connection_scope(db_path) as connection:
+        routine = connection.execute(
+            """
+            SELECT r.id, r.name, r.frequency_days
+            FROM profiles p JOIN routines r ON r.id = p.active_routine_id
+            WHERE p.id = ? AND p.active = 1 AND r.active = 1
+            """,
+            (profile_id,),
+        ).fetchone()
+        if routine is None:
+            return None
+        workouts = connection.execute(
+            """
+            SELECT id, name FROM workouts
+            WHERE routine_id = ? AND active = 1 ORDER BY position, id
+            """,
+            (routine["id"],),
+        ).fetchall()
+        if not workouts:
+            return None
+        last = connection.execute(
+            """
+            SELECT workout_id, workout_name, completed_at
+            FROM workout_sessions
+            WHERE profile_id = ? AND routine_id = ?
+            ORDER BY completed_at DESC, id DESC LIMIT 1
+            """,
+            (profile_id, routine["id"]),
+        ).fetchone()
+
+    next_index = 0
+    if last is not None:
+        matching_index = next(
+            (index for index, workout in enumerate(workouts) if workout["id"] == last["workout_id"]),
+            None,
+        )
+        if matching_index is not None:
+            next_index = (matching_index + 1) % len(workouts)
+    next_workout = workouts[next_index]
+    last_completed_at = (
+        datetime.fromisoformat(last["completed_at"]) if last is not None else None
+    )
+    due_date = (
+        last_completed_at.date() + timedelta(days=routine["frequency_days"])
+        if last_completed_at is not None
+        else None
+    )
+    return NextWorkoutStatus(
+        routine_id=int(routine["id"]),
+        routine_name=str(routine["name"]),
+        frequency_days=int(routine["frequency_days"]),
+        workout_id=int(next_workout["id"]),
+        workout_name=str(next_workout["name"]),
+        last_workout_name=str(last["workout_name"]) if last is not None else None,
+        last_completed_at=last_completed_at,
+        days_since_last_workout=(current_date - last_completed_at.date()).days if last_completed_at else None,
+        due_date=due_date,
+        is_due=due_date is None or current_date >= due_date,
+    )
 
 
 def create_workout(

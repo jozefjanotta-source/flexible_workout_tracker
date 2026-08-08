@@ -30,6 +30,7 @@ from profile_management import (
     create_profile,
     default_profile_id,
     list_profiles,
+    set_active_routine,
     update_profile,
 )
 from routine_management import (
@@ -43,6 +44,7 @@ from routine_management import (
     list_workout_exercises,
     list_workouts,
     move_workout_exercise,
+    next_workout_status,
     remove_exercise_from_workout,
     update_routine,
     update_workout,
@@ -62,7 +64,7 @@ from workout_logging import (
 )
 
 
-APP_SCHEMA_VERSION = "v6_intensity_reps"
+APP_SCHEMA_VERSION = "v7_configurable_routine_rotation"
 DRAFT_WIDGET_VERSION = 2
 
 
@@ -339,6 +341,7 @@ def dashboard_page() -> None:
         else 0
     )
     last_workout = sessions[0]["workout_name"] if sessions else "None yet"
+    next_status = next_workout_status(profile_id)
 
     if st.button(
         "Start workout",
@@ -346,6 +349,9 @@ def dashboard_page() -> None:
         icon=":material/fitness_center:",
         width="stretch",
     ):
+        if next_status is not None:
+            st.session_state["log_routine_id"] = next_status.routine_id
+            st.session_state["log_workout_id"] = next_status.workout_id
         st.session_state["navigate_after_rerun"] = "Workout"
         st.rerun()
 
@@ -357,6 +363,21 @@ def dashboard_page() -> None:
     )
     columns[1].metric("Last workout", last_workout, border=True)
     columns[2].metric("Exercises progressing", progress_count, border=True)
+
+    if next_status is None:
+        st.info("Choose an active routine in Profiles to enable workout rotation.")
+    else:
+        due_label = (
+            "Due now"
+            if next_status.is_due
+            else f"Due {format_date(next_status.due_date)}"
+        )
+        st.subheader("Next workout")
+        with st.container(border=True):
+            st.markdown(f"**{next_status.workout_name}**")
+            st.caption(
+                f"{next_status.routine_name} · every {next_status.frequency_days} days · {due_label}"
+            )
 
     st.subheader("Recent workouts")
     if not sessions:
@@ -428,6 +449,8 @@ def profiles_page() -> None:
 
     if mode == "Manage profiles":
         profiles = list_profiles()
+        routines = list_routines(active_only=True)
+        routine_labels = {routine.id: routine.name for routine in routines}
         for profile in profiles:
             status = "Active" if profile.active else "Archived"
             status_icon = "●" if profile.active else "○"
@@ -436,13 +459,28 @@ def profiles_page() -> None:
                     edited_name = st.text_input("Profile name", value=profile.name)
                     edited_notes = st.text_area("Notes", value=profile.notes)
                     edited_active = st.checkbox("Active", value=profile.active)
+                    selected_routine_id = st.selectbox(
+                        "Active routine",
+                        list(routine_labels),
+                        index=(
+                            list(routine_labels).index(profile.active_routine_id)
+                            if profile.active_routine_id in routine_labels
+                            else 0
+                        ),
+                        format_func=routine_labels.get,
+                        disabled=not bool(routine_labels),
+                    ) if routine_labels else None
                     saved = st.form_submit_button("Save profile")
                 if saved and show_error(
-                    lambda item=profile: update_profile(
-                        item.id,
-                        name=edited_name,
-                        notes=edited_notes,
-                        active=edited_active,
+                    lambda item=profile: (
+                        update_profile(
+                            item.id,
+                            name=edited_name,
+                            notes=edited_notes,
+                            active=edited_active,
+                        ),
+                        set_active_routine(item.id, selected_routine_id)
+                        if selected_routine_id is not None else None,
                     )
                 ):
                     st.success("Profile updated.")
@@ -526,8 +564,11 @@ def routines_page() -> None:
         with st.form("create_routine", clear_on_submit=True):
             name = st.text_input("Routine name")
             description = st.text_area("Description")
+            frequency_days = st.number_input("Days between workouts", 1, 365, 6)
             create = st.form_submit_button("Create routine", type="primary")
-        if create and show_error(lambda: create_routine(name, description)):
+        if create and show_error(
+            lambda: create_routine(name, description, frequency_days=int(frequency_days))
+        ):
             st.success("Routine created. Add its first workout in the Edit routine tab.")
             st.rerun()
 
@@ -563,6 +604,9 @@ def routines_page() -> None:
             with st.form(f"edit_routine_{routine.id}"):
                 routine_name = st.text_input("Name", routine.name)
                 routine_description = st.text_area("Description", routine.description)
+                routine_frequency = st.number_input(
+                    "Days between workouts", 1, 365, routine.frequency_days
+                )
                 routine_active = st.checkbox("Active", routine.active)
                 save_routine = st.form_submit_button("Save routine")
             if save_routine and show_error(
@@ -571,6 +615,7 @@ def routines_page() -> None:
                     name=routine_name,
                     description=routine_description,
                     active=routine_active,
+                    frequency_days=int(routine_frequency),
                 )
             ):
                 st.success("Routine updated.")
@@ -785,6 +830,14 @@ def log_workout_page() -> None:
         st.info("Create and activate a routine before logging a workout.")
         return
     routine_labels = {item.id: item.name for item in routines}
+    recommended = next_workout_status(profile_id)
+    selected_routine = st.session_state.get("log_routine_id")
+    if selected_routine not in routine_labels:
+        st.session_state["log_routine_id"] = (
+            recommended.routine_id
+            if recommended is not None and recommended.routine_id in routine_labels
+            else next(iter(routine_labels))
+        )
     with st.container(border=True, key="workout_selector"):
         selector_col1, selector_col2 = st.columns(2)
         routine_id = selector_col1.selectbox(
@@ -798,6 +851,15 @@ def log_workout_page() -> None:
             st.info("This routine has no active workouts.")
             return
         workout_labels = {item.id: item.name for item in workouts}
+        selected_workout = st.session_state.get("log_workout_id")
+        if selected_workout not in workout_labels:
+            st.session_state["log_workout_id"] = (
+                recommended.workout_id
+                if recommended is not None
+                and routine_id == recommended.routine_id
+                and recommended.workout_id in workout_labels
+                else next(iter(workout_labels))
+            )
         workout_id = selector_col2.selectbox(
             "Workout",
             list(workout_labels),
