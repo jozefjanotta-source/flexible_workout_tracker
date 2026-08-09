@@ -28,6 +28,7 @@ from progress_calculations import (
     exercise_progress,
     history_dataframe,
     latest_exercise_progress,
+    recovery_frequency_dataframe,
     workout_comparison_dataframe,
 )
 from routine_management import (
@@ -398,6 +399,54 @@ class WorkflowTests(unittest.TestCase):
             progress["evaluation"].tolist(),
             ["Baseline", "No progress", "Regression", "Progress", "Progress"],
         )
+        recovery = recovery_frequency_dataframe(
+            routine_id=routine_id,
+            workout_ids=[workout_id],
+            db_path=self.db_path,
+        )
+        self.assertEqual(
+            recovery["workout_recovery_days"].tolist(), [1, 1, 1, 1]
+        )
+        self.assertEqual(
+            recovery["exercise_recovery_days"].tolist(), [1, 1, 1, 1]
+        )
+        self.assertEqual(
+            recovery["evaluation"].tolist(),
+            ["No progress", "Regression", "Progress", "Progress"],
+        )
+
+    def test_recovery_analysis_separates_workout_and_exercise_intervals(self) -> None:
+        exercises = list_exercises(active_only=True, db_path=self.db_path)
+        bench = next(item for item in exercises if item.name == "Bench Press")
+        squat = next(item for item in exercises if item.name == "Barbell Back Squat")
+        routine_id = create_routine("Recovery Test", db_path=self.db_path)
+        upper_id = create_workout(routine_id, "Upper", db_path=self.db_path)
+        lower_id = create_workout(routine_id, "Lower", db_path=self.db_path)
+        bench_config = add_exercise_to_workout(
+            upper_id, bench.id, target_min_reps=6, target_max_reps=10,
+            target_sets=1, db_path=self.db_path,
+        )
+        squat_config = add_exercise_to_workout(
+            lower_id, squat.id, target_min_reps=6, target_max_reps=10,
+            target_sets=1, db_path=self.db_path,
+        )
+        sessions = (
+            (upper_id, bench_config, date(2026, 3, 1), SetEntry(50, 8)),
+            (lower_id, squat_config, date(2026, 3, 5), SetEntry(80, 8)),
+            (upper_id, bench_config, date(2026, 3, 8), SetEntry(52.5, 8)),
+        )
+        for workout_id, config_id, workout_date, result in sessions:
+            save_completed_session(
+                routine_id, workout_id, workout_date,
+                datetime.combine(workout_date, datetime.min.time()).replace(hour=18),
+                [ExerciseLog(config_id, (result,))], db_path=self.db_path,
+            )
+        recovery = recovery_frequency_dataframe(
+            routine_id=routine_id, workout_ids=[upper_id], db_path=self.db_path
+        )
+        self.assertEqual(recovery["workout_recovery_days"].tolist(), [3])
+        self.assertEqual(recovery["exercise_recovery_days"].tolist(), [7])
+        self.assertEqual(recovery["evaluation"].tolist(), ["Progress"])
 
     def test_one_set_defaults_and_routine_duplication(self) -> None:
         initialize_database(self.db_path, seed_sample_routine=True)
