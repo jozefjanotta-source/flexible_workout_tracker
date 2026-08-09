@@ -1365,7 +1365,9 @@ def comparison_page() -> None:
         )
     else:
         recovery_summary = (
-            recovery.groupby(["recovery_days", "evaluation"], as_index=False)
+            recovery.groupby(
+                ["workout_recovery_days", "evaluation"], as_index=False
+            )
             .size()
             .rename(columns={"size": "results"})
         )
@@ -1374,8 +1376,8 @@ def comparison_page() -> None:
             .mark_bar()
             .encode(
                 x=alt.X(
-                    "recovery_days:O",
-                    title="Actual recovery days for the same exercise",
+                    "workout_recovery_days:O",
+                    title="Days since the previous workout",
                     sort="ascending",
                 ),
                 y=alt.Y("results:Q", title="Number of results", stack="zero"),
@@ -1388,7 +1390,10 @@ def comparison_page() -> None:
                     ),
                 ),
                 tooltip=[
-                    alt.Tooltip("recovery_days:O", title="Recovery days"),
+                    alt.Tooltip(
+                        "workout_recovery_days:O",
+                        title="Days since previous workout",
+                    ),
                     alt.Tooltip("evaluation:N", title="Outcome"),
                     alt.Tooltip("results:Q", title="Results"),
                 ],
@@ -1398,8 +1403,9 @@ def comparison_page() -> None:
         st.altair_chart(recovery_chart, width="stretch")
         st.caption(
             f"Based on {len(recovery)} comparable exercise results. "
-            "Recovery is measured between appearances of the same exercise, "
-            "not merely between routine workouts."
+            "The chart measures systemic recovery since the profile's previous "
+            "workout. Exercise outcomes are still compared with the previous "
+            "result for that same exercise."
         )
 
     st.subheader("Sessions side by side")

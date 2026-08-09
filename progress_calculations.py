@@ -239,19 +239,32 @@ def recovery_frequency_dataframe(
     profile_id: int | None = None,
     db_path: Path | str | None = None,
 ) -> pd.DataFrame:
-    """Evaluate each exercise result against its actual recovery interval."""
+    """Evaluate results with both systemic and exercise-specific recovery days."""
     selected_workouts = tuple(dict.fromkeys(int(item) for item in (workout_ids or ())))
     query = """
-        WITH ranked_sets AS (
+        WITH session_recovery AS (
+            SELECT id,
+                   CAST(
+                       julianday(workout_date) - julianday(
+                           LAG(workout_date) OVER (
+                               PARTITION BY profile_id
+                               ORDER BY completed_at, id
+                           )
+                       ) AS INTEGER
+                   ) AS workout_recovery_days
+            FROM workout_sessions
+        ),
+        ranked_sets AS (
             SELECT ws.id AS session_id, ws.workout_date AS date,
                    ws.completed_at, ws.workout_id, ws.workout_name AS workout,
                    se.exercise_id, se.exercise_name AS exercise,
-                   ls.weight, ls.reps,
+                   ls.weight, ls.reps, sr.workout_recovery_days,
                    ROW_NUMBER() OVER (
                        PARTITION BY ws.id, se.exercise_id
                        ORDER BY ls.weight DESC, ls.reps DESC, ls.set_number
                    ) AS set_rank
             FROM workout_sessions ws
+            JOIN session_recovery sr ON sr.id = ws.id
             JOIN session_exercises se ON se.session_id = ws.id
             JOIN logged_sets ls ON ls.session_exercise_id = se.id
             WHERE ws.routine_id = ?
@@ -263,7 +276,7 @@ def recovery_frequency_dataframe(
     query += """
         )
         SELECT session_id, date, completed_at, workout_id, workout,
-               exercise_id, exercise, weight, reps
+               exercise_id, exercise, weight, reps, workout_recovery_days
         FROM ranked_sets
         WHERE set_rank = 1
         ORDER BY exercise_id, date, completed_at
@@ -275,19 +288,21 @@ def recovery_frequency_dataframe(
 
     result_columns = [
         "session_id", "date", "workout_id", "workout", "exercise_id",
-        "exercise", "weight", "reps", "recovery_days", "evaluation",
+        "exercise", "weight", "reps", "workout_recovery_days",
+        "exercise_recovery_days", "evaluation",
     ]
     if frame.empty:
         return pd.DataFrame(columns=result_columns)
     frame["date"] = pd.to_datetime(frame["date"])
     frame["weight"] = frame["weight"].astype(float).round(2)
-    frame["recovery_days"] = pd.Series(index=frame.index, dtype="Int64")
+    frame["workout_recovery_days"] = frame["workout_recovery_days"].astype("Int64")
+    frame["exercise_recovery_days"] = pd.Series(index=frame.index, dtype="Int64")
     frame["evaluation"] = pd.Series(index=frame.index, dtype="object")
     for _, group in frame.groupby("exercise_id", sort=False):
         previous: pd.Series | None = None
         for index, current in group.iterrows():
             if previous is not None:
-                frame.at[index, "recovery_days"] = (
+                frame.at[index, "exercise_recovery_days"] = (
                     current["date"] - previous["date"]
                 ).days
                 frame.at[index, "evaluation"] = _evaluate_result(
@@ -297,7 +312,10 @@ def recovery_frequency_dataframe(
                     previous_reps=int(previous["reps"]),
                 )
             previous = current
-    frame = frame[frame["recovery_days"].notna()].copy()
+    frame = frame[
+        frame["exercise_recovery_days"].notna()
+        & frame["workout_recovery_days"].notna()
+    ].copy()
     if selected_workouts:
         frame = frame[frame["workout_id"].isin(selected_workouts)].copy()
     return frame[result_columns].reset_index(drop=True)
