@@ -23,6 +23,7 @@ from progress_calculations import (
     days_since_previous_workout,
     history_dataframe,
     latest_exercise_progress,
+    recovery_frequency_dataframe,
     workout_comparison_dataframe,
 )
 from profile_management import (
@@ -1350,6 +1351,56 @@ def comparison_page() -> None:
     metrics[0].metric("Sessions", int(comparison["session_id"].nunique()))
     metrics[1].metric("Workouts", int(comparison["workout_id"].nunique()))
     metrics[2].metric("Exercises", int(comparison["exercise_id"].nunique()))
+
+    st.subheader("Recovery frequency")
+    recovery = recovery_frequency_dataframe(
+        routine_id=routine_id,
+        workout_ids=selected_workouts,
+        profile_id=profile_id,
+    )
+    if recovery.empty:
+        st.info(
+            "Complete the same exercise at least twice to compare recovery "
+            "frequency with performance."
+        )
+    else:
+        recovery_summary = (
+            recovery.groupby(["recovery_days", "evaluation"], as_index=False)
+            .size()
+            .rename(columns={"size": "results"})
+        )
+        recovery_chart = (
+            alt.Chart(recovery_summary)
+            .mark_bar()
+            .encode(
+                x=alt.X(
+                    "recovery_days:O",
+                    title="Actual recovery days for the same exercise",
+                    sort="ascending",
+                ),
+                y=alt.Y("results:Q", title="Number of results", stack="zero"),
+                color=alt.Color(
+                    "evaluation:N",
+                    title="Outcome",
+                    scale=alt.Scale(
+                        domain=["Progress", "No progress", "Regression"],
+                        range=["#16A34A", "#D97706", "#DC2626"],
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip("recovery_days:O", title="Recovery days"),
+                    alt.Tooltip("evaluation:N", title="Outcome"),
+                    alt.Tooltip("results:Q", title="Results"),
+                ],
+            )
+            .properties(height=300)
+        )
+        st.altair_chart(recovery_chart, width="stretch")
+        st.caption(
+            f"Based on {len(recovery)} comparable exercise results. "
+            "Recovery is measured between appearances of the same exercise, "
+            "not merely between routine workouts."
+        )
 
     st.subheader("Sessions side by side")
     comparison["Result"] = comparison.apply(

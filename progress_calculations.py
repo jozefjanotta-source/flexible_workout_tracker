@@ -232,6 +232,77 @@ def workout_comparison_dataframe(
     return frame
 
 
+def recovery_frequency_dataframe(
+    *,
+    routine_id: int,
+    workout_ids: Iterable[int] | None = None,
+    profile_id: int | None = None,
+    db_path: Path | str | None = None,
+) -> pd.DataFrame:
+    """Evaluate each exercise result against its actual recovery interval."""
+    selected_workouts = tuple(dict.fromkeys(int(item) for item in (workout_ids or ())))
+    query = """
+        WITH ranked_sets AS (
+            SELECT ws.id AS session_id, ws.workout_date AS date,
+                   ws.completed_at, ws.workout_id, ws.workout_name AS workout,
+                   se.exercise_id, se.exercise_name AS exercise,
+                   ls.weight, ls.reps,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ws.id, se.exercise_id
+                       ORDER BY ls.weight DESC, ls.reps DESC, ls.set_number
+                   ) AS set_rank
+            FROM workout_sessions ws
+            JOIN session_exercises se ON se.session_id = ws.id
+            JOIN logged_sets ls ON ls.session_exercise_id = se.id
+            WHERE ws.routine_id = ?
+    """
+    params: list[object] = [routine_id]
+    if profile_id is not None:
+        query += " AND ws.profile_id = ?"
+        params.append(profile_id)
+    query += """
+        )
+        SELECT session_id, date, completed_at, workout_id, workout,
+               exercise_id, exercise, weight, reps
+        FROM ranked_sets
+        WHERE set_rank = 1
+        ORDER BY exercise_id, date, completed_at
+    """
+    with connection_scope(db_path) as connection:
+        cursor = connection.execute(query, params)
+        columns = [description[0] for description in cursor.description]
+        frame = pd.DataFrame.from_records(cursor.fetchall(), columns=columns)
+
+    result_columns = [
+        "session_id", "date", "workout_id", "workout", "exercise_id",
+        "exercise", "weight", "reps", "recovery_days", "evaluation",
+    ]
+    if frame.empty:
+        return pd.DataFrame(columns=result_columns)
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame["weight"] = frame["weight"].astype(float).round(2)
+    frame["recovery_days"] = pd.Series(index=frame.index, dtype="Int64")
+    frame["evaluation"] = pd.Series(index=frame.index, dtype="object")
+    for _, group in frame.groupby("exercise_id", sort=False):
+        previous: pd.Series | None = None
+        for index, current in group.iterrows():
+            if previous is not None:
+                frame.at[index, "recovery_days"] = (
+                    current["date"] - previous["date"]
+                ).days
+                frame.at[index, "evaluation"] = _evaluate_result(
+                    weight=float(current["weight"]),
+                    reps=int(current["reps"]),
+                    previous_weight=float(previous["weight"]),
+                    previous_reps=int(previous["reps"]),
+                )
+            previous = current
+    frame = frame[frame["recovery_days"].notna()].copy()
+    if selected_workouts:
+        frame = frame[frame["workout_id"].isin(selected_workouts)].copy()
+    return frame[result_columns].reset_index(drop=True)
+
+
 def history_dataframe(
     *,
     profile_id: int | None = None,

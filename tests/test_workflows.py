@@ -28,6 +28,7 @@ from progress_calculations import (
     exercise_progress,
     history_dataframe,
     latest_exercise_progress,
+    recovery_frequency_dataframe,
     workout_comparison_dataframe,
 )
 from routine_management import (
@@ -397,6 +398,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(
             progress["evaluation"].tolist(),
             ["Baseline", "No progress", "Regression", "Progress", "Progress"],
+        )
+        recovery = recovery_frequency_dataframe(
+            routine_id=routine_id,
+            workout_ids=[workout_id],
+            db_path=self.db_path,
+        )
+        self.assertEqual(recovery["recovery_days"].tolist(), [1, 1, 1, 1])
+        self.assertEqual(
+            recovery["evaluation"].tolist(),
+            ["No progress", "Regression", "Progress", "Progress"],
         )
 
     def test_one_set_defaults_and_routine_duplication(self) -> None:
