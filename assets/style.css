@@ -169,6 +169,15 @@ textarea::placeholder {
   opacity: 1 !important;
 }
 
+input:disabled,
+textarea:disabled,
+button:disabled,
+[aria-disabled="true"] {
+  color: var(--hd-muted) !important;
+  -webkit-text-fill-color: var(--hd-muted) !important;
+  opacity: 0.78 !important;
+}
+
 [data-baseweb="popover"],
 [data-baseweb="menu"],
 [data-baseweb="calendar"],

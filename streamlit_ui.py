@@ -762,6 +762,15 @@ def _draft_key_prefix(workout_id: int, workout_exercise_id: int) -> str:
     return f"v{DRAFT_WIDGET_VERSION}_{workout_id}_{workout_exercise_id}_1"
 
 
+def _increase_draft_weight(weight_key: str) -> None:
+    """Advance a draft weight, starting a blank input at one 0.25 kg step."""
+    current = st.session_state.get(weight_key)
+    st.session_state[weight_key] = min(
+        1000.0,
+        0.25 if current is None else float(current) + 0.25,
+    )
+
+
 def _workout_exercise_card(
     item: WorkoutExercise,
     *,
@@ -793,7 +802,11 @@ def _workout_exercise_card(
 
         completed = st.checkbox("Completed", key=completed_key)
         weight_col, reps_col = st.columns(2)
-        weight = weight_col.number_input(
+        weight_key = f"log_weight_{key_prefix}"
+        weight_input_col, weight_plus_col = weight_col.columns(
+            [4, 1], vertical_alignment="bottom"
+        )
+        weight = weight_input_col.number_input(
             "Weight",
             min_value=0.0,
             max_value=1000.0,
@@ -801,8 +814,15 @@ def _workout_exercise_card(
             step=0.25,
             format="%g",
             placeholder="Enter weight",
-            key=f"log_weight_{key_prefix}",
+            key=weight_key,
             help="Use the minus and plus buttons; each step is 0.25 kg.",
+        )
+        weight_plus_col.button(
+            "+ 0.25",
+            key=f"increase_{weight_key}",
+            help="Start or increase the weight by 0.25 kg.",
+            on_click=_increase_draft_weight,
+            args=(weight_key,),
         )
         weight_col.caption(
             f"{format_weight(weight)} kg" if weight is not None else "Not entered"

@@ -31,7 +31,7 @@ theme_tokens = (
         "surface_strong": "rgba(24, 32, 42, 0.98)",
         "field": "#10161e",
         "text": "#f3f6fa",
-        "muted": "#9ba8b8",
+        "muted": "#e2e8f0",
         "border": "#2a3441",
         "shadow": "rgba(0, 0, 0, 0.38)",
     }

@@ -141,6 +141,17 @@ class AppSmokeTests(unittest.TestCase):
                         if widget.label == "Reps"
                     ).value
                 )
+                next(
+                    button for button in app.button
+                    if button.label == "+ 0.25"
+                ).click().run()
+                self.assertEqual(
+                    next(
+                        widget for widget in app.number_input
+                        if widget.label == "Weight"
+                    ).value,
+                    0.25,
+                )
                 app.checkbox[0].set_value(True)
                 weight_input = next(
                     widget for widget in app.number_input
