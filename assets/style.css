@@ -26,6 +26,34 @@ body,
   color: var(--hd-text);
 }
 
+/* Streamlit navigation and overlays otherwise retain the configured base theme. */
+[data-testid="stNavigation"],
+[data-testid="stTopNav"],
+[data-testid="stSidebarNav"],
+[data-testid="stMainMenuPopover"],
+[data-testid="stPopoverBody"],
+[data-testid="stModal"],
+[data-testid="stDialog"] {
+  background: var(--hd-surface) !important;
+  color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
+}
+
+[data-testid="stNavigation"] *,
+[data-testid="stTopNav"] *,
+[data-testid="stSidebarNav"] *,
+[data-testid="stMainMenuPopover"] *,
+[data-testid="stPopoverBody"] *,
+[data-testid="stModal"] *,
+[data-testid="stDialog"] * {
+  color: var(--hd-text) !important;
+}
+
+[data-testid="stNavSectionHeader"] {
+  color: var(--hd-muted) !important;
+  opacity: 1 !important;
+}
+
 [data-testid="stAppViewContainer"] p,
 [data-testid="stAppViewContainer"] label,
 [data-testid="stAppViewContainer"] h1,
@@ -143,9 +171,46 @@ textarea::placeholder {
 
 [data-baseweb="popover"],
 [data-baseweb="menu"],
-[role="listbox"] {
+[data-baseweb="calendar"],
+[data-baseweb="datepicker"],
+[data-baseweb="tab-list"],
+[role="listbox"],
+[role="dialog"] {
   background: var(--hd-surface) !important;
   color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
+}
+
+[data-baseweb="popover"] *,
+[data-baseweb="menu"] *,
+[data-baseweb="calendar"] *,
+[data-baseweb="datepicker"] *,
+[data-baseweb="tab-list"] *,
+[role="listbox"] *,
+[role="dialog"] * {
+  color: var(--hd-text) !important;
+}
+
+[data-baseweb="tab"] {
+  background: transparent !important;
+  color: var(--hd-text) !important;
+}
+
+[data-baseweb="tab"][aria-selected="true"] {
+  color: var(--workout-accent) !important;
+  border-color: var(--workout-accent) !important;
+}
+
+[data-testid="stCheckbox"],
+[data-testid="stRadio"],
+[data-testid="stPills"],
+[data-testid="stSegmentedControl"] {
+  color: var(--hd-text) !important;
+}
+
+[data-testid="stAlert"] {
+  color: var(--hd-text) !important;
+  border: 2px solid var(--hd-border);
 }
 
 [role="option"]:hover,
