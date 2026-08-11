@@ -321,10 +321,34 @@ def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
     reps_points = base.mark_point(filled=True, size=95, shape="square").encode(
         y=reps_y, color=evaluation_color, tooltip=tooltip
     )
-    return (
+    chart = (
         alt.layer(weight_bars, reps_line, reps_points)
         .resolve_scale(y="independent")
         .properties(height=330)
+    )
+    return apply_chart_theme(chart)
+
+
+def apply_chart_theme(chart: alt.TopLevelMixin) -> alt.TopLevelMixin:
+    """Apply the app-selected palette instead of Streamlit's fixed base theme."""
+    dark = st.session_state.get("color_theme", "Dark") == "Dark"
+    background = "#151d28" if dark else "#ffffff"
+    text = "#f8fafc" if dark else "#142033"
+    grid = "#52647a" if dark else "#c7d2e0"
+    border = "#52647a" if dark else "#8798ae"
+    return (
+        chart.configure(background=background)
+        .configure_view(fill=background, stroke=border)
+        .configure_axis(
+            labelColor=text,
+            titleColor=text,
+            domainColor=border,
+            tickColor=border,
+            gridColor=grid,
+            gridOpacity=0.45,
+        )
+        .configure_legend(labelColor=text, titleColor=text)
+        .configure_title(color=text)
     )
 
 
@@ -1392,7 +1416,7 @@ def comparison_page() -> None:
             )
             .properties(height=300)
         )
-        st.altair_chart(recovery_chart, width="stretch")
+        st.altair_chart(apply_chart_theme(recovery_chart), width="stretch")
         st.caption(
             f"Based on {len(recovery)} comparable exercise results. "
             "The chart measures systemic recovery since the profile's previous "
@@ -1412,7 +1436,7 @@ def comparison_page() -> None:
         aggfunc="first",
     ).reindex(columns=session_order)
     pivot.index.name = "Exercise"
-    st.dataframe(pivot, width="stretch")
+    st.table(pivot)
 
     st.subheader("Exercise trends")
     exercise_names = comparison["exercise"].drop_duplicates().tolist()
@@ -1459,6 +1483,19 @@ def comparison_page() -> None:
             )
 
 
+def settings_page() -> None:
+    """Render application appearance settings."""
+    st.title("Settings")
+    st.subheader("Appearance")
+    st.caption("Choose the color scheme used throughout Heavy Duty Journal.")
+    st.radio(
+        "Color theme",
+        ("Dark", "Light"),
+        key="color_theme",
+        horizontal=True,
+    )
+
+
 def render_shared_header() -> None:
     """Render profile context and cross-page notifications."""
     active_profiles = list_profiles(active_only=True)
@@ -1473,8 +1510,8 @@ def render_shared_header() -> None:
     if st.session_state.get("active_profile_id") not in profile_options:
         st.session_state["active_profile_id"] = default_profile_id()
     with st.container(key="utility_bar"):
-        brand_col, profile_col, settings_col = st.columns(
-            [5, 2, 1.15],
+        brand_col, profile_col = st.columns(
+            [6, 2],
             vertical_alignment="bottom",
         )
         brand_col.markdown("**Heavy Duty Journal**")
@@ -1486,18 +1523,6 @@ def render_shared_header() -> None:
             key="active_profile_id",
             label_visibility="collapsed",
         )
-        with settings_col.popover(
-            "Settings",
-            icon=":material/settings:",
-        ):
-            st.markdown("#### Appearance")
-            st.radio(
-                "Color theme",
-                ("Dark", "Light"),
-                key="color_theme",
-                horizontal=True,
-                label_visibility="collapsed",
-            )
     if st.session_state.pop("workout_cancelled", False):
         st.info("Workout cancelled. Nothing was saved.")
     if st.session_state.pop("workout_saved", False):

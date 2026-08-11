@@ -92,6 +92,11 @@ profiles_page = st.Page(
     title="Profiles",
     icon=":material/group:",
 )
+settings_page = st.Page(
+    "ui_pages/settings.py",
+    title="Settings",
+    icon=":material/settings:",
+)
 
 page_by_name = {
     "Home": home_page,
@@ -101,7 +106,7 @@ page_by_name = {
 selected_page = st.navigation(
     {
         "": [home_page, workout_page, compare_page, history_page],
-        "Manage": [routines_page, exercises_page, profiles_page],
+        "Manage": [routines_page, exercises_page, profiles_page, settings_page],
     },
     position="top",
 )

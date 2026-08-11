@@ -32,6 +32,7 @@ class AppSmokeTests(unittest.TestCase):
                     "ui_pages/routines.py",
                     "ui_pages/exercises.py",
                     "ui_pages/profiles.py",
+                    "ui_pages/settings.py",
                 ):
                     app.switch_page(page_path).run()
                     self.assertFalse(

@@ -205,10 +205,6 @@ textarea::placeholder {
   line-height: 1.1;
 }
 
-.st-key-utility_bar [data-testid="stPopover"] button {
-  min-height: 3.2rem;
-}
-
 .st-key-workout_selector {
   background: linear-gradient(120deg, var(--hd-surface), color-mix(in srgb, var(--workout-accent) 10%, var(--hd-surface)));
   border: 2px solid color-mix(in srgb, var(--workout-accent) 55%, var(--hd-border));
@@ -221,6 +217,20 @@ textarea::placeholder {
   border: 2px solid var(--hd-border);
   border-radius: 0.9rem;
   overflow: hidden;
+}
+
+[data-testid="stTable"] {
+  background: var(--hd-surface);
+  border: 2px solid var(--hd-border);
+  border-radius: 0.9rem;
+  overflow: auto;
+}
+
+[data-testid="stTable"] th,
+[data-testid="stTable"] td {
+  background: var(--hd-surface) !important;
+  color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
 }
 
 @media (max-width: 700px) {
@@ -283,5 +293,10 @@ textarea::placeholder {
 
   .st-key-utility_bar [data-testid="stColumn"]:first-child {
     display: none;
+  }
+
+  .st-key-utility_bar [data-testid="stColumn"]:last-child {
+    width: 100%;
+    flex: 1 1 100%;
   }
 }
