@@ -331,7 +331,7 @@ def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
 
 def apply_chart_theme(chart: alt.TopLevelMixin) -> alt.TopLevelMixin:
     """Apply the app-selected palette instead of Streamlit's fixed base theme."""
-    dark = st.session_state.get("color_theme", "Dark") == "Dark"
+    dark = st.session_state.get("selected_color_theme", "Dark") == "Dark"
     background = "#151d28" if dark else "#ffffff"
     text = "#f8fafc" if dark else "#142033"
     grid = "#52647a" if dark else "#c7d2e0"
@@ -1488,11 +1488,22 @@ def settings_page() -> None:
     st.title("Settings")
     st.subheader("Appearance")
     st.caption("Choose the color scheme used throughout Heavy Duty Journal.")
+
+    selected_theme = st.session_state.get("selected_color_theme", "Dark")
+    if st.session_state.get("color_theme_control") not in ("Dark", "Light"):
+        st.session_state["color_theme_control"] = selected_theme
+
+    def save_color_theme() -> None:
+        st.session_state["selected_color_theme"] = st.session_state[
+            "color_theme_control"
+        ]
+
     st.radio(
         "Color theme",
         ("Dark", "Light"),
-        key="color_theme",
+        key="color_theme_control",
         horizontal=True,
+        on_change=save_color_theme,
     )
 
 

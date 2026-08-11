@@ -17,9 +17,13 @@ st.set_page_config(
 )
 st.html(Path(__file__).resolve().parent / "assets" / "style.css")
 
-color_theme = st.session_state.get("color_theme", "Dark")
+color_theme = st.session_state.get(
+    "selected_color_theme",
+    st.session_state.get("color_theme", "Dark"),
+)
 if color_theme not in ("Dark", "Light"):
     color_theme = "Dark"
+st.session_state["selected_color_theme"] = color_theme
 theme_tokens = (
     {
         "background": "#0b1017",
