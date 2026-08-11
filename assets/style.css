@@ -217,6 +217,41 @@ h2, h3, h4 {
   color: var(--hd-text) !important;
 }
 
+[data-testid="stSelectboxVirtualDropdown"] {
+  border: 2px solid var(--hd-border) !important;
+  border-radius: 0.55rem !important;
+  overflow: hidden !important;
+  box-shadow: 0 0.5rem 1.2rem var(--hd-shadow) !important;
+}
+
+/* Render selectboxes as one control, not two overlapping rounded pills. */
+[data-testid="stSelectbox"] > div:last-child {
+  background: var(--hd-field) !important;
+  border: 2px solid var(--hd-border) !important;
+  border-radius: 0.55rem !important;
+  overflow: hidden !important;
+  box-shadow: 0 0.2rem 0.5rem var(--hd-shadow);
+}
+
+[data-testid="stSelectbox"] > div:last-child div,
+[data-testid="stSelectbox"] > div:last-child input,
+[data-testid="stSelectbox"] > div:last-child button {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+[data-testid="stSelectbox"] button[aria-label="Open"] {
+  border-left: 1px solid var(--hd-border) !important;
+  min-width: 3rem;
+}
+
+[data-testid="stSelectbox"] > div:last-child:focus-within {
+  border-color: var(--workout-accent) !important;
+  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--workout-accent) 28%, transparent);
+}
+
 [data-testid="stNumberInputContainer"],
 [data-testid="stNumberInputField"],
 [data-testid="stTextInputRootElement"],
