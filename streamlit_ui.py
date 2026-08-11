@@ -329,7 +329,7 @@ def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
 
 
 def dashboard_page() -> None:
-    st.title("Heavy Duty Journal")
+    st.title("Dashboard")
     st.caption("Your Heavy Duty training at a glance.")
     profile_id = current_profile_id()
     sessions = list_sessions(profile_id=profile_id)
@@ -1468,13 +1468,6 @@ def comparison_page() -> None:
 
 def render_shared_header() -> None:
     """Render profile context and cross-page notifications."""
-    with st.container(border=True, key="theme_switcher"):
-        st.radio(
-            "Color theme",
-            ("Dark", "Light"),
-            key="color_theme",
-            horizontal=True,
-        )
     active_profiles = list_profiles(active_only=True)
     if not active_profiles:
         st.error(
@@ -1486,12 +1479,13 @@ def render_shared_header() -> None:
     profile_options = {profile.id: profile.name for profile in active_profiles}
     if st.session_state.get("active_profile_id") not in profile_options:
         st.session_state["active_profile_id"] = default_profile_id()
-    with st.container(border=True, key="profile_bar"):
-        profile_col, context_col = st.columns(
-            [3, 1],
+    with st.container(key="utility_bar"):
+        brand_col, profile_col, settings_col = st.columns(
+            [5, 2, 1.15],
             vertical_alignment="bottom",
         )
-        profile_col.caption("Training profile")
+        brand_col.markdown("**Heavy Duty Journal**")
+        brand_col.caption("Cloud synced")
         profile_col.selectbox(
             "Training profile",
             list(profile_options),
@@ -1499,11 +1493,19 @@ def render_shared_header() -> None:
             key="active_profile_id",
             label_visibility="collapsed",
         )
-        context_col.badge(
-            "Cloud synced",
-            icon=":material/cloud_done:",
-            color="green",
-        )
+        with settings_col.popover(
+            "Settings",
+            icon=":material/settings:",
+            width="stretch",
+        ):
+            st.markdown("#### Appearance")
+            st.radio(
+                "Color theme",
+                ("Dark", "Light"),
+                key="color_theme",
+                horizontal=True,
+                label_visibility="collapsed",
+            )
     if st.session_state.pop("workout_cancelled", False):
         st.info("Workout cancelled. Nothing was saved.")
     if st.session_state.pop("workout_saved", False):

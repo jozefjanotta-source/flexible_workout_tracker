@@ -3,7 +3,6 @@
   --workout-accent: #f97316;
   --workout-blue: #3b82f6;
   --workout-green: #22c55e;
-  --workout-purple: #a855f7;
   font-size: 19px;
 }
 
@@ -175,36 +174,33 @@ textarea::placeholder {
 
 [data-testid="stBaseButton-primary"] {
   color: #ffffff !important;
-  background: linear-gradient(120deg, #ea580c, #f97316 52%, #db2777) !important;
+  background: linear-gradient(120deg, #c2410c, #f97316 55%, #f59e0b) !important;
   border-color: #fb923c !important;
   box-shadow: 0 0.4rem 1rem color-mix(in srgb, var(--workout-accent) 32%, transparent);
 }
 
-.st-key-profile_bar {
-  background: linear-gradient(105deg, color-mix(in srgb, var(--workout-blue) 16%, var(--hd-surface)), color-mix(in srgb, var(--workout-purple) 13%, var(--hd-surface)));
-  border: 2px solid color-mix(in srgb, var(--workout-blue) 55%, var(--hd-border));
-  border-radius: 1rem;
-  padding: 0.35rem 0.8rem 0.55rem;
-  margin-bottom: 0.75rem;
+.st-key-utility_bar {
+  background: color-mix(in srgb, var(--hd-surface) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hd-border) 75%, transparent);
+  border-radius: 0.85rem;
+  padding: 0.45rem 0.65rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 0.25rem 0.8rem var(--hd-shadow);
+  backdrop-filter: blur(12px);
 }
 
-.st-key-theme_switcher {
-  background: linear-gradient(100deg, color-mix(in srgb, var(--workout-purple) 18%, var(--hd-surface)), color-mix(in srgb, var(--workout-blue) 18%, var(--hd-surface)));
-  border: 3px solid color-mix(in srgb, var(--workout-purple) 62%, var(--hd-border)) !important;
-  border-radius: 1rem;
-  padding: 0.45rem 0.8rem 0.6rem;
-  margin-bottom: 0.7rem;
-  box-shadow: 0 0.4rem 1rem var(--hd-shadow);
+.st-key-utility_bar [data-testid="stMarkdownContainer"] p {
+  margin-bottom: 0;
 }
 
-.st-key-theme_switcher [data-testid="stWidgetLabel"] p {
-  color: var(--hd-text);
-  font-size: 1.1rem;
-  font-weight: 750;
+.st-key-utility_bar [data-testid="stCaptionContainer"] p {
+  font-size: 0.78rem;
+  line-height: 1.1;
 }
 
-.st-key-theme_switcher [role="radiogroup"] {
-  gap: 1rem;
+.st-key-utility_bar [data-testid="stPopover"] button {
+  min-height: 3.2rem;
+  width: 100%;
 }
 
 .st-key-workout_selector {
@@ -265,20 +261,17 @@ textarea::placeholder {
     font-size: 1.05rem;
   }
 
-  .st-key-profile_bar,
+  .st-key-utility_bar,
   .st-key-workout_selector {
     padding-left: 0.55rem;
     padding-right: 0.55rem;
   }
 
-  .st-key-profile_bar [data-testid="stHorizontalBlock"] {
-    flex-wrap: wrap;
-    gap: 0.65rem;
+  .st-key-utility_bar [data-testid="stHorizontalBlock"] {
+    gap: 0.45rem;
   }
 
-  .st-key-profile_bar [data-testid="stColumn"] {
-    min-width: 8rem;
-    width: auto;
-    flex: 1 1 8rem;
+  .st-key-utility_bar [data-testid="stColumn"]:first-child {
+    display: none;
   }
 }
