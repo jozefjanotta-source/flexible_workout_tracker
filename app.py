@@ -40,9 +40,9 @@ theme_tokens = (
         "background": "#f3f7fc",
         "surface": "#ffffff",
         "surface_strong": "#e8f0fa",
-        "field": "#ffffff",
+        "field": "#e7f1ff",
         "text": "#142033",
-        "muted": "#46566c",
+        "muted": "#334155",
         "border": "#8798ae",
         "shadow": "rgba(30, 58, 95, 0.16)",
     }

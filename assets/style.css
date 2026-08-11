@@ -147,6 +147,12 @@ h2, h3, h4 {
   min-height: 3.2rem;
 }
 
+[data-baseweb="input"] input,
+[data-baseweb="base-input"] input,
+[data-baseweb="textarea"] textarea {
+  background: transparent !important;
+}
+
 /* Weight uses the adjacent blank-aware stepper; hide its duplicate native arrows. */
 [class*="st-key-log_weight_"] [data-testid="stNumberInput"] button {
   display: none;
@@ -193,6 +199,13 @@ button:disabled,
   background: var(--hd-surface) !important;
   color: var(--hd-text) !important;
   border-color: var(--hd-border) !important;
+}
+
+[data-baseweb="popover"] > div,
+[data-baseweb="menu"] > div,
+[role="listbox"],
+[role="option"] {
+  background: var(--hd-field) !important;
 }
 
 [data-baseweb="popover"] *,
