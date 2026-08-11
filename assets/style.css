@@ -316,6 +316,8 @@ h2, h3, h4 {
   border: 2px solid var(--hd-border) !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+  font-size: 1rem !important;
+  font-weight: 700 !important;
 }
 
 [class*="st-key-log_weight_"] [data-testid="stNumberInputContainer"] {
