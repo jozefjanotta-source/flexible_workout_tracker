@@ -26,13 +26,13 @@ if color_theme not in ("Dark", "Light"):
 st.session_state["selected_color_theme"] = color_theme
 theme_tokens = (
     {
-        "background": "#0b1017",
-        "surface": "#151d28",
-        "surface_strong": "#1d2938",
-        "field": "#0f1722",
-        "text": "#f8fafc",
-        "muted": "#d5deea",
-        "border": "#52647a",
+        "background": "#0b0f14",
+        "surface": "#141a22",
+        "surface_strong": "#18202a",
+        "field": "#10161e",
+        "text": "#f3f6fa",
+        "muted": "#b8c2cf",
+        "border": "#2a3441",
         "shadow": "rgba(0, 0, 0, 0.38)",
     }
     if color_theme == "Dark"

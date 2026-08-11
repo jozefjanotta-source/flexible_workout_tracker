@@ -332,10 +332,10 @@ def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
 def apply_chart_theme(chart: alt.TopLevelMixin) -> alt.TopLevelMixin:
     """Apply the app-selected palette instead of Streamlit's fixed base theme."""
     dark = st.session_state.get("selected_color_theme", "Dark") == "Dark"
-    background = "#151d28" if dark else "#ffffff"
-    text = "#f8fafc" if dark else "#142033"
-    grid = "#52647a" if dark else "#c7d2e0"
-    border = "#52647a" if dark else "#8798ae"
+    background = "#141a22" if dark else "#ffffff"
+    text = "#f3f6fa" if dark else "#142033"
+    grid = "#2a3441" if dark else "#c7d2e0"
+    border = "#2a3441" if dark else "#8798ae"
     return (
         chart.configure(background=background)
         .configure_view(fill=background, stroke=border)
