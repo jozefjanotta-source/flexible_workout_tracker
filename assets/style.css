@@ -94,7 +94,7 @@ h2, h3, h4 {
 }
 
 [data-testid="stMetricLabel"] {
-  color: var(--hd-muted);
+  color: var(--hd-muted) !important;
   font-size: 1.05rem;
   opacity: 1;
 }
@@ -105,7 +105,7 @@ h2, h3, h4 {
 
 [data-testid="stCaptionContainer"] p,
 [data-testid="stWidgetLabel"] p {
-  color: var(--hd-muted);
+  color: var(--hd-muted) !important;
   font-size: 1rem;
   line-height: 1.45;
   opacity: 1;
@@ -147,10 +147,30 @@ h2, h3, h4 {
   min-height: 3.2rem;
 }
 
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div,
+[data-testid="stDateInput"] [data-baseweb="input"],
+[data-testid="stTimeInput"] [data-baseweb="input"],
+[data-testid="stTextInput"] [data-baseweb="input"],
+[data-testid="stTextArea"] [data-baseweb="textarea"],
+[data-testid="stNumberInput"] [data-baseweb="input"] {
+  background-color: var(--hd-field) !important;
+  color: var(--hd-text) !important;
+}
+
 [data-baseweb="input"] input,
 [data-baseweb="base-input"] input,
-[data-baseweb="textarea"] textarea {
+[data-baseweb="textarea"] textarea,
+[data-baseweb="select"] input {
   background: transparent !important;
+  color: var(--hd-text) !important;
+  -webkit-text-fill-color: var(--hd-text) !important;
+}
+
+[data-baseweb="select"] svg,
+[data-baseweb="input"] svg {
+  color: var(--hd-text) !important;
+  fill: var(--hd-text) !important;
 }
 
 /* Weight uses the adjacent blank-aware stepper; hide its duplicate native arrows. */
@@ -202,10 +222,15 @@ button:disabled,
 }
 
 [data-baseweb="popover"] > div,
+[data-baseweb="popover"] ul,
+[data-baseweb="popover"] li,
 [data-baseweb="menu"] > div,
+[data-baseweb="menu"] ul,
+[data-baseweb="menu"] li,
 [role="listbox"],
 [role="option"] {
-  background: var(--hd-field) !important;
+  background-color: var(--hd-field) !important;
+  color: var(--hd-text) !important;
 }
 
 [data-baseweb="popover"] *,
