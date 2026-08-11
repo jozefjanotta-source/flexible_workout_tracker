@@ -27,11 +27,11 @@ st.session_state["selected_color_theme"] = color_theme
 theme_tokens = (
     {
         "background": "#0b0f14",
-        "surface": "#141a22",
-        "surface_strong": "#18202a",
+        "surface": "rgba(20, 26, 34, 0.92)",
+        "surface_strong": "rgba(24, 32, 42, 0.98)",
         "field": "#10161e",
         "text": "#f3f6fa",
-        "muted": "#b8c2cf",
+        "muted": "#9ba8b8",
         "border": "#2a3441",
         "shadow": "rgba(0, 0, 0, 0.38)",
     }
