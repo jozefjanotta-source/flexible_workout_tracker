@@ -158,6 +158,14 @@ h2, h3, h4 {
   color: var(--hd-text) !important;
 }
 
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] [data-baseweb="select"],
+[data-testid="stSelectbox"] [data-baseweb="select"] > div > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
+  background-color: var(--hd-field) !important;
+  color: var(--hd-text) !important;
+}
+
 [data-baseweb="input"] input,
 [data-baseweb="base-input"] input,
 [data-baseweb="textarea"] textarea,
@@ -289,9 +297,30 @@ button:disabled,
 .stDownloadButton > button {
   min-height: 2.75rem;
   font-weight: 650;
-  border: 2px solid color-mix(in srgb, var(--workout-blue) 60%, var(--hd-border));
-  color: var(--hd-text);
-  background: var(--hd-surface-strong);
+  border: 2px solid color-mix(in srgb, var(--workout-blue) 60%, var(--hd-border)) !important;
+  color: var(--hd-text) !important;
+  background: var(--hd-surface-strong) !important;
+}
+
+[data-testid="stBaseButton-secondary"],
+[data-testid="stBaseButton-tertiary"],
+[data-testid="stDownloadButton"] button,
+[data-testid="stPopover"] button,
+[data-testid="stNumberInputStepUp"],
+[data-testid="stNumberInputStepDown"] {
+  background: var(--hd-surface-strong) !important;
+  color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
+}
+
+[data-testid="stBaseButton-secondary"] *,
+[data-testid="stBaseButton-tertiary"] *,
+[data-testid="stDownloadButton"] button *,
+[data-testid="stPopover"] button *,
+[data-testid="stNumberInputStepUp"] *,
+[data-testid="stNumberInputStepDown"] * {
+  color: var(--hd-text) !important;
+  fill: var(--hd-text) !important;
 }
 
 [data-testid="stBaseButton-primary"] {
@@ -299,6 +328,31 @@ button:disabled,
   background: linear-gradient(120deg, #c2410c, #f97316 55%, #f59e0b) !important;
   border-color: #fb923c !important;
   box-shadow: 0 0.4rem 1rem color-mix(in srgb, var(--workout-accent) 32%, transparent);
+}
+
+[data-testid="stPills"] button,
+[data-testid="stSegmentedControl"] button {
+  background: var(--hd-field) !important;
+  color: var(--hd-text) !important;
+  border: 2px solid var(--hd-border) !important;
+}
+
+[data-testid="stPills"] button[aria-selected="true"],
+[data-testid="stSegmentedControl"] button[aria-checked="true"] {
+  background: color-mix(in srgb, var(--workout-blue) 28%, var(--hd-field)) !important;
+  border-color: var(--workout-blue) !important;
+}
+
+[data-testid="stExpander"] details,
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary > div {
+  background: var(--hd-surface) !important;
+  color: var(--hd-text) !important;
+}
+
+[data-testid="stCheckbox"] label,
+[data-testid="stRadio"] label {
+  color: var(--hd-text) !important;
 }
 
 .st-key-utility_bar {
