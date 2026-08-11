@@ -29,6 +29,8 @@ body,
 /* Streamlit navigation and overlays otherwise retain the configured base theme. */
 [data-testid="stNavigation"],
 [data-testid="stTopNav"],
+[data-testid="stTopNavPopoverBody"],
+[data-testid="stTopNavPopover"],
 [data-testid="stSidebarNav"],
 [data-testid="stMainMenuPopover"],
 [data-testid="stPopoverBody"],
@@ -41,11 +43,30 @@ body,
 
 [data-testid="stNavigation"] *,
 [data-testid="stTopNav"] *,
+[data-testid="stTopNavPopoverBody"] *,
+[data-testid="stTopNavPopover"] *,
 [data-testid="stSidebarNav"] *,
 [data-testid="stMainMenuPopover"] *,
 [data-testid="stPopoverBody"] *,
 [data-testid="stModal"] *,
 [data-testid="stDialog"] * {
+  color: var(--hd-text) !important;
+}
+
+[data-testid="stTopNavSection"],
+[data-testid="stTopNavLink"],
+[data-testid="stTopNavDropdownLink"],
+[data-testid="stTopNavLinkContainer"] {
+  background: var(--hd-surface) !important;
+  color: var(--hd-text) !important;
+}
+
+[data-testid="stTopNavPopoverBody"],
+[data-testid="stTopNavPopover"],
+[data-testid="stTopNavPopover"] div,
+[data-testid="stTopNavPopover"] ul,
+[data-testid="stTopNavPopover"] li {
+  background: var(--hd-field) !important;
   color: var(--hd-text) !important;
 }
 
@@ -164,6 +185,50 @@ h2, h3, h4 {
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div > div {
   background-color: var(--hd-field) !important;
   color: var(--hd-text) !important;
+}
+
+/* Current Streamlit selectors (React Aria controls and portal dropdowns). */
+[data-testid="stSelectbox"] button,
+[data-testid="stSelectbox"] [role="button"],
+[data-testid="stSelectbox"] input,
+[data-testid="stSelectbox"] > div:last-child,
+[data-testid="stMultiSelect"] button,
+[data-testid="stMultiSelect"] [role="button"],
+[data-testid="stMultiSelect"] input {
+  background: var(--hd-field) !important;
+  color: var(--hd-text) !important;
+  -webkit-text-fill-color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
+}
+
+[data-testid="stSelectboxVirtualDropdown"],
+[data-testid="stSelectboxVirtualDropdown"] > div,
+[data-testid="stSelectboxVirtualDropdown"] ul,
+[data-testid="stSelectboxVirtualDropdown"] li,
+[data-testid="stSelectboxVirtualDropdown"] [role="option"] {
+  background: var(--hd-field) !important;
+  color: var(--hd-text) !important;
+}
+
+[data-testid="stNumberInputContainer"],
+[data-testid="stNumberInputField"],
+[data-testid="stTextInputRootElement"],
+[data-testid="stTextAreaRootElement"],
+[data-testid="stTextAreaRootElement"] textarea,
+[data-testid="stDateInputField"],
+[data-testid="stTimeInputTimeDisplay"] {
+  background: var(--hd-field) !important;
+  color: var(--hd-text) !important;
+  -webkit-text-fill-color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
+}
+
+[data-testid="stNumberInputContainer"] button,
+[data-testid="stTimeInput"] button,
+[data-testid="stDateInput"] button {
+  background: var(--hd-surface-strong) !important;
+  color: var(--hd-text) !important;
+  border-color: var(--hd-border) !important;
 }
 
 [data-baseweb="input"] input,
