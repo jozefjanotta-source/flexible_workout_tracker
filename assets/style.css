@@ -4,7 +4,7 @@
   --workout-blue: #3b82f6;
   --workout-panel: rgba(20, 26, 34, 0.92);
   --workout-border: #2a3441;
-  font-size: 17px;
+  font-size: 19px;
 }
 
 .stMainBlockContainer {
@@ -30,18 +30,21 @@ h2, h3, h4 {
 }
 
 [data-testid="stMetricLabel"] {
-  color: #9ba8b8;
-  font-size: 1rem;
+  color: color-mix(in srgb, var(--text-color) 88%, transparent);
+  font-size: 1.05rem;
+  opacity: 1;
 }
 
 [data-testid="stMetricValue"] {
-  font-size: 2rem;
+  font-size: 2.15rem;
 }
 
 [data-testid="stCaptionContainer"] p,
 [data-testid="stWidgetLabel"] p {
-  font-size: 0.95rem;
+  color: color-mix(in srgb, var(--text-color) 88%, transparent);
+  font-size: 1rem;
   line-height: 1.45;
+  opacity: 1;
 }
 
 .stButton > button,
@@ -49,7 +52,19 @@ h2, h3, h4 {
 [data-baseweb="select"] > div,
 [data-baseweb="input"] input,
 [data-baseweb="textarea"] textarea {
-  font-size: 1rem;
+  font-size: 1.05rem;
+}
+
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] li {
+  line-height: 1.55;
+}
+
+[data-baseweb="select"] *,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea {
+  color: var(--text-color);
+  opacity: 1;
 }
 
 [data-testid="stExpander"] {
@@ -94,7 +109,7 @@ h2, h3, h4 {
 
 @media (max-width: 700px) {
   :root {
-    font-size: 18px;
+    font-size: 21px;
   }
 
   .stMainBlockContainer {
@@ -102,11 +117,15 @@ h2, h3, h4 {
   }
 
   h1 {
-    font-size: 2rem !important;
+    font-size: 2.25rem !important;
   }
 
   h2 {
-    font-size: 1.45rem !important;
+    font-size: 1.65rem !important;
+  }
+
+  h3 {
+    font-size: 1.35rem !important;
   }
 
   [data-testid="stMetric"] {
@@ -114,7 +133,7 @@ h2, h3, h4 {
   }
 
   [data-testid="stMetricLabel"] {
-    font-size: 0.95rem;
+    font-size: 1rem;
   }
 
   [data-testid="stMetricValue"] {
@@ -123,13 +142,13 @@ h2, h3, h4 {
 
   [data-testid="stCaptionContainer"] p,
   [data-testid="stWidgetLabel"] p {
-    font-size: 1rem;
+    font-size: 1.05rem;
   }
 
   .stButton > button,
   .stDownloadButton > button {
     min-height: 3rem;
-    font-size: 1rem;
+    font-size: 1.05rem;
   }
 
   .st-key-profile_bar,
