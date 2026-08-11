@@ -313,11 +313,13 @@ h2, h3, h4 {
   min-width: 0 !important;
   min-height: 3.2rem !important;
   padding: 0 !important;
+  border: 2px solid var(--hd-border) !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
 [class*="st-key-log_weight_"] [data-testid="stNumberInputContainer"] {
+  border: 2px solid var(--hd-border) !important;
   border-radius: 0.55rem 0 0 0.55rem !important;
   box-shadow: none !important;
 }

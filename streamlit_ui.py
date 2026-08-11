@@ -824,6 +824,7 @@ def _workout_exercise_card(
             help="Decrease the weight by 0.25 kg.",
             on_click=_adjust_draft_weight,
             args=(weight_key, -0.25),
+            width="stretch",
         )
         weight_plus_col.button(
             "+",
@@ -831,6 +832,7 @@ def _workout_exercise_card(
             help="Start or increase the weight by 0.25 kg.",
             on_click=_adjust_draft_weight,
             args=(weight_key, 0.25),
+            width="stretch",
         )
         weight_col.caption(
             f"{format_weight(weight)} kg" if weight is not None else "Not entered"
