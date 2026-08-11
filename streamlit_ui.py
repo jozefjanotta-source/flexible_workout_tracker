@@ -805,7 +805,7 @@ def _workout_exercise_card(
         weight_col, reps_col = st.columns(2)
         weight_key = f"log_weight_{key_prefix}"
         weight_input_col, weight_minus_col, weight_plus_col = weight_col.columns(
-            [5, 1, 1], vertical_alignment="bottom"
+            [5, 0.72, 0.72], gap=None, vertical_alignment="bottom"
         )
         weight = weight_input_col.number_input(
             "Weight",
