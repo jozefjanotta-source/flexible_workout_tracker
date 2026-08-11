@@ -242,29 +242,17 @@ def recovery_frequency_dataframe(
     """Evaluate results with both systemic and exercise-specific recovery days."""
     selected_workouts = tuple(dict.fromkeys(int(item) for item in (workout_ids or ())))
     query = """
-        WITH session_recovery AS (
-            SELECT id,
-                   CAST(
-                       julianday(workout_date) - julianday(
-                           LAG(workout_date) OVER (
-                               PARTITION BY profile_id
-                               ORDER BY completed_at, id
-                           )
-                       ) AS INTEGER
-                   ) AS workout_recovery_days
-            FROM workout_sessions
-        ),
-        ranked_sets AS (
+        WITH ranked_sets AS (
             SELECT ws.id AS session_id, ws.workout_date AS date,
-                   ws.completed_at, ws.workout_id, ws.workout_name AS workout,
+                   ws.completed_at, ws.profile_id, ws.workout_id,
+                   ws.workout_name AS workout,
                    se.exercise_id, se.exercise_name AS exercise,
-                   ls.weight, ls.reps, sr.workout_recovery_days,
+                   ls.weight, ls.reps,
                    ROW_NUMBER() OVER (
                        PARTITION BY ws.id, se.exercise_id
                        ORDER BY ls.weight DESC, ls.reps DESC, ls.set_number
                    ) AS set_rank
             FROM workout_sessions ws
-            JOIN session_recovery sr ON sr.id = ws.id
             JOIN session_exercises se ON se.session_id = ws.id
             JOIN logged_sets ls ON ls.session_exercise_id = se.id
             WHERE ws.routine_id = ?
@@ -275,13 +263,23 @@ def recovery_frequency_dataframe(
         params.append(profile_id)
     query += """
         )
-        SELECT session_id, date, completed_at, workout_id, workout,
-               exercise_id, exercise, weight, reps, workout_recovery_days
+        SELECT session_id, date, completed_at, profile_id, workout_id, workout,
+               exercise_id, exercise, weight, reps
         FROM ranked_sets
         WHERE set_rank = 1
         ORDER BY exercise_id, date, completed_at
     """
     with connection_scope(db_path) as connection:
+        session_query = """
+            SELECT id, profile_id, workout_date
+            FROM workout_sessions
+        """
+        session_params: tuple[object, ...] = ()
+        if profile_id is not None:
+            session_query += " WHERE profile_id = ?"
+            session_params = (profile_id,)
+        session_query += " ORDER BY profile_id, workout_date, completed_at, id"
+        session_rows = connection.execute(session_query, session_params).fetchall()
         cursor = connection.execute(query, params)
         columns = [description[0] for description in cursor.description]
         frame = pd.DataFrame.from_records(cursor.fetchall(), columns=columns)
@@ -295,10 +293,25 @@ def recovery_frequency_dataframe(
         return pd.DataFrame(columns=result_columns)
     frame["date"] = pd.to_datetime(frame["date"])
     frame["weight"] = frame["weight"].astype(float).round(2)
-    frame["workout_recovery_days"] = frame["workout_recovery_days"].astype("Int64")
+    workout_recovery_days: dict[int, int | None] = {}
+    previous_dates: dict[int | None, date] = {}
+    for session in session_rows:
+        session_date = date.fromisoformat(str(session["workout_date"]))
+        previous_date = previous_dates.get(session["profile_id"])
+        workout_recovery_days[int(session["id"])] = (
+            (session_date - previous_date).days if previous_date is not None else None
+        )
+        previous_dates[session["profile_id"]] = session_date
+    frame["workout_recovery_days"] = frame["session_id"].map(
+        workout_recovery_days
+    ).astype("Int64")
     frame["exercise_recovery_days"] = pd.Series(index=frame.index, dtype="Int64")
     frame["evaluation"] = pd.Series(index=frame.index, dtype="object")
-    for _, group in frame.groupby("exercise_id", sort=False):
+    # Keep profiles independent when the caller requests an all-profile report.
+    # dropna=False also preserves legacy sessions that have no assigned profile.
+    for _, group in frame.groupby(
+        ["profile_id", "exercise_id"], sort=False, dropna=False
+    ):
         previous: pd.Series | None = None
         for index, current in group.iterrows():
             if previous is not None:
