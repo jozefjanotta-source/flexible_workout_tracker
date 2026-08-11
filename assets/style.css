@@ -27,6 +27,16 @@ body,
   color: var(--hd-text);
 }
 
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] label,
+[data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] h2,
+[data-testid="stAppViewContainer"] h3,
+[data-testid="stAppViewContainer"] h4 {
+  color: var(--hd-text);
+  opacity: 1;
+}
+
 .stMainBlockContainer {
   max-width: 1180px;
   padding-top: 1.25rem;
@@ -84,33 +94,47 @@ h2, h3, h4 {
 
 [data-baseweb="select"] *,
 [data-baseweb="input"] input,
+[data-baseweb="base-input"] input,
 [data-baseweb="textarea"] textarea {
   color: var(--hd-text) !important;
+  -webkit-text-fill-color: var(--hd-text) !important;
   opacity: 1;
 }
 
 [data-baseweb="select"] > div,
-[data-baseweb="input"] > div,
-[data-baseweb="textarea"] > div,
+[data-baseweb="input"],
+[data-baseweb="base-input"],
+[data-baseweb="textarea"],
 [data-testid="stNumberInput"] [data-baseweb="input"] > div {
   background: var(--hd-field) !important;
-  border: 2px solid var(--hd-border) !important;
+  border: 3px solid var(--hd-border) !important;
   border-radius: 0.7rem !important;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--hd-text) 8%, transparent);
-  min-height: 3rem;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--hd-text) 10%, transparent),
+    0 0.2rem 0.5rem var(--hd-shadow);
+  min-height: 3.2rem;
 }
 
 [data-baseweb="select"] > div:hover,
-[data-baseweb="input"] > div:hover,
-[data-baseweb="textarea"] > div:hover {
+[data-baseweb="input"]:hover,
+[data-baseweb="base-input"]:hover,
+[data-baseweb="textarea"]:hover {
   border-color: var(--workout-blue) !important;
 }
 
 [data-baseweb="select"] > div:focus-within,
-[data-baseweb="input"] > div:focus-within,
-[data-baseweb="textarea"] > div:focus-within {
+[data-baseweb="input"]:focus-within,
+[data-baseweb="base-input"]:focus-within,
+[data-baseweb="textarea"]:focus-within {
   border-color: var(--workout-accent) !important;
-  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--workout-accent) 25%, transparent);
+  box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--workout-accent) 35%, transparent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--hd-muted) !important;
+  -webkit-text-fill-color: var(--hd-muted) !important;
+  opacity: 1 !important;
 }
 
 [data-baseweb="popover"],
@@ -162,6 +186,25 @@ h2, h3, h4 {
   border-radius: 1rem;
   padding: 0.35rem 0.8rem 0.55rem;
   margin-bottom: 0.75rem;
+}
+
+.st-key-theme_switcher {
+  background: linear-gradient(100deg, color-mix(in srgb, var(--workout-purple) 18%, var(--hd-surface)), color-mix(in srgb, var(--workout-blue) 18%, var(--hd-surface)));
+  border: 3px solid color-mix(in srgb, var(--workout-purple) 62%, var(--hd-border)) !important;
+  border-radius: 1rem;
+  padding: 0.45rem 0.8rem 0.6rem;
+  margin-bottom: 0.7rem;
+  box-shadow: 0 0.4rem 1rem var(--hd-shadow);
+}
+
+.st-key-theme_switcher [data-testid="stWidgetLabel"] p {
+  color: var(--hd-text);
+  font-size: 1.1rem;
+  font-weight: 750;
+}
+
+.st-key-theme_switcher [role="radiogroup"] {
+  gap: 1rem;
 }
 
 .st-key-workout_selector {

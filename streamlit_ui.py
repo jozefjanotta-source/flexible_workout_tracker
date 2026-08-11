@@ -1468,6 +1468,13 @@ def comparison_page() -> None:
 
 def render_shared_header() -> None:
     """Render profile context and cross-page notifications."""
+    with st.container(border=True, key="theme_switcher"):
+        st.radio(
+            "Color theme",
+            ("Dark", "Light"),
+            key="color_theme",
+            horizontal=True,
+        )
     active_profiles = list_profiles(active_only=True)
     if not active_profiles:
         st.error(
@@ -1480,8 +1487,8 @@ def render_shared_header() -> None:
     if st.session_state.get("active_profile_id") not in profile_options:
         st.session_state["active_profile_id"] = default_profile_id()
     with st.container(border=True, key="profile_bar"):
-        profile_col, theme_col, context_col = st.columns(
-            [3, 1.35, 1],
+        profile_col, context_col = st.columns(
+            [3, 1],
             vertical_alignment="bottom",
         )
         profile_col.caption("Training profile")
@@ -1490,13 +1497,6 @@ def render_shared_header() -> None:
             list(profile_options),
             format_func=profile_options.get,
             key="active_profile_id",
-            label_visibility="collapsed",
-        )
-        theme_col.caption("Appearance")
-        theme_col.selectbox(
-            "Appearance",
-            ("Dark", "Light"),
-            key="color_theme",
             label_visibility="collapsed",
         )
         context_col.badge(
