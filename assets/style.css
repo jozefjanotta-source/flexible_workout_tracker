@@ -147,6 +147,11 @@ h2, h3, h4 {
   min-height: 3.2rem;
 }
 
+/* Weight uses the adjacent blank-aware stepper; hide its duplicate native arrows. */
+[class*="st-key-log_weight_"] [data-testid="stNumberInput"] button {
+  display: none;
+}
+
 [data-baseweb="select"] > div:hover,
 [data-baseweb="input"]:hover,
 [data-baseweb="base-input"]:hover,
