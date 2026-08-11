@@ -106,7 +106,7 @@ class AppSmokeTests(unittest.TestCase):
                     if button.label == "Discard workout"
                 ).click().run()
                 self.assertFalse(app.exception)
-                self.assertIn("Workout tracker", [title.value for title in app.title])
+                self.assertIn("Heavy Duty Journal", [title.value for title in app.title])
                 self.assertIn(
                     "Workout cancelled. Nothing was saved.",
                     [message.value for message in app.info],

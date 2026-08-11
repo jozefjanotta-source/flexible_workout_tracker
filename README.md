@@ -1,4 +1,4 @@
-# Flexible Workout Tracker — Version 4
+# Heavy Duty Journal
 
 A responsive, multi-profile workout tracker built with Python and Streamlit. It stores reusable exercise and routine templates separately from completed workout history, supports a Heavy Duty–style single working set, and can run against either a local SQLite database or a synced Turso database.
 

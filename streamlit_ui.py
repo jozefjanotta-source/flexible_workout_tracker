@@ -101,7 +101,6 @@ st.markdown(
     """
     <style>
     .block-container {max-width: 1120px; padding-top: 2rem;}
-    [data-testid="stMetric"] {background: rgba(128, 128, 128, 0.10); border: 1px solid rgba(128, 128, 128, 0.22); border-radius: 0.7rem; padding: 0.8rem;}
     @media (max-width: 640px) {
         .block-container {
             padding-top: 4.75rem;
@@ -117,9 +116,9 @@ st.markdown(
             bottom: 0.75rem;
             z-index: 999;
             padding: 0.5rem;
-            border: 1px solid var(--st-border-color);
+            border: 2px solid var(--hd-border);
             border-radius: 0.75rem;
-            background: var(--st-background-color);
+            background: var(--hd-surface);
             box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.18);
         }
     }
@@ -330,7 +329,7 @@ def progress_chart(frame: pd.DataFrame) -> alt.LayerChart:
 
 
 def dashboard_page() -> None:
-    st.title("Workout tracker")
+    st.title("Heavy Duty Journal")
     st.caption("Your Heavy Duty training at a glance.")
     profile_id = current_profile_id()
     sessions = list_sessions(profile_id=profile_id)
@@ -1481,8 +1480,8 @@ def render_shared_header() -> None:
     if st.session_state.get("active_profile_id") not in profile_options:
         st.session_state["active_profile_id"] = default_profile_id()
     with st.container(border=True, key="profile_bar"):
-        profile_col, context_col = st.columns(
-            [3, 1],
+        profile_col, theme_col, context_col = st.columns(
+            [3, 1.35, 1],
             vertical_alignment="bottom",
         )
         profile_col.caption("Training profile")
@@ -1491,6 +1490,13 @@ def render_shared_header() -> None:
             list(profile_options),
             format_func=profile_options.get,
             key="active_profile_id",
+            label_visibility="collapsed",
+        )
+        theme_col.caption("Appearance")
+        theme_col.selectbox(
+            "Appearance",
+            ("Dark", "Light"),
+            key="color_theme",
             label_visibility="collapsed",
         )
         context_col.badge(

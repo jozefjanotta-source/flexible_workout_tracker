@@ -10,12 +10,51 @@ from streamlit_ui import render_shared_header
 
 
 st.set_page_config(
-    page_title="Workout Tracker",
+    page_title="Heavy Duty Journal",
     page_icon="🏋️",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 st.html(Path(__file__).resolve().parent / "assets" / "style.css")
+
+color_theme = st.session_state.get("color_theme", "Dark")
+if color_theme not in ("Dark", "Light"):
+    color_theme = "Dark"
+theme_tokens = (
+    {
+        "background": "#0b1017",
+        "surface": "#151d28",
+        "surface_strong": "#1d2938",
+        "field": "#0f1722",
+        "text": "#f8fafc",
+        "muted": "#d5deea",
+        "border": "#52647a",
+        "shadow": "rgba(0, 0, 0, 0.38)",
+    }
+    if color_theme == "Dark"
+    else {
+        "background": "#f3f7fc",
+        "surface": "#ffffff",
+        "surface_strong": "#e8f0fa",
+        "field": "#ffffff",
+        "text": "#142033",
+        "muted": "#46566c",
+        "border": "#8798ae",
+        "shadow": "rgba(30, 58, 95, 0.16)",
+    }
+)
+st.html(
+    "<style>:root {"
+    + ";".join(
+        f"--hd-{name.replace('_', '-')}:{value}"
+        for name, value in theme_tokens.items()
+    )
+    + ";--text-color:var(--hd-text)"
+    + ";--background-color:var(--hd-background)"
+    + ";--secondary-background-color:var(--hd-surface)"
+    + f";color-scheme:{color_theme.lower()}"
+    + "}</style>"
+)
 
 home_page = st.Page(
     "ui_pages/home.py",
