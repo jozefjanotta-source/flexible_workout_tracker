@@ -4,6 +4,7 @@
   --workout-blue: #3b82f6;
   --workout-panel: rgba(20, 26, 34, 0.92);
   --workout-border: #2a3441;
+  font-size: 17px;
 }
 
 .stMainBlockContainer {
@@ -30,6 +31,25 @@ h2, h3, h4 {
 
 [data-testid="stMetricLabel"] {
   color: #9ba8b8;
+  font-size: 1rem;
+}
+
+[data-testid="stMetricValue"] {
+  font-size: 2rem;
+}
+
+[data-testid="stCaptionContainer"] p,
+[data-testid="stWidgetLabel"] p {
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.stButton > button,
+.stDownloadButton > button,
+[data-baseweb="select"] > div,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea {
+  font-size: 1rem;
 }
 
 [data-testid="stExpander"] {
@@ -73,6 +93,10 @@ h2, h3, h4 {
 }
 
 @media (max-width: 700px) {
+  :root {
+    font-size: 18px;
+  }
+
   .stMainBlockContainer {
     padding: 0.8rem 0.7rem 4rem;
   }
@@ -89,9 +113,23 @@ h2, h3, h4 {
     padding: 0.7rem 0.75rem;
   }
 
+  [data-testid="stMetricLabel"] {
+    font-size: 0.95rem;
+  }
+
+  [data-testid="stMetricValue"] {
+    font-size: 1.75rem;
+  }
+
+  [data-testid="stCaptionContainer"] p,
+  [data-testid="stWidgetLabel"] p {
+    font-size: 1rem;
+  }
+
   .stButton > button,
   .stDownloadButton > button {
     min-height: 3rem;
+    font-size: 1rem;
   }
 
   .st-key-profile_bar,
