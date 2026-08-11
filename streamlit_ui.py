@@ -437,7 +437,7 @@ def dashboard_page() -> None:
         "Progress": "green",
         "No progress": "orange",
         "Regression": "red",
-        "Baseline": "gray",
+        "Baseline": "blue",
     }
     for _, row in latest_frame.head(8).iterrows():
         with st.container(border=True):
@@ -445,7 +445,7 @@ def dashboard_page() -> None:
             name_col.markdown(f"**{row['Exercise']}**")
             status_col.badge(
                 str(row["Evaluation"]),
-                color=evaluation_colors.get(str(row["Evaluation"]), "gray"),
+                color=evaluation_colors.get(str(row["Evaluation"]), "blue"),
             )
             st.caption(
                 f"{row['Weight']} kg × {int(row['Reps'])} reps · {row['Date']}"
@@ -1488,14 +1488,14 @@ def comparison_page() -> None:
             "Progress": "green",
             "No progress": "orange",
             "Regression": "red",
-            "Baseline": "gray",
+            "Baseline": "blue",
         }
         with st.container(border=True):
             title_col, status_col = st.columns([3, 1])
             title_col.markdown(f"#### {exercise_name}")
             status_col.badge(
                 str(latest["evaluation"]),
-                color=evaluation_colors.get(str(latest["evaluation"]), "gray"),
+                color=evaluation_colors.get(str(latest["evaluation"]), "blue"),
             )
             st.caption(
                 f"Latest: {format_weight(latest['weight'])} × "

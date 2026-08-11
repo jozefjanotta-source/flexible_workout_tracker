@@ -199,6 +199,13 @@ h2, h3, h4 {
   color: var(--hd-text) !important;
   -webkit-text-fill-color: var(--hd-text) !important;
   border-color: var(--hd-border) !important;
+  border-radius: 0.7rem !important;
+  background-clip: padding-box !important;
+}
+
+[data-testid="stSelectbox"] > div:last-child,
+[data-testid="stMultiSelect"] > div:last-child {
+  overflow: hidden;
 }
 
 [data-testid="stSelectboxVirtualDropdown"],
@@ -221,6 +228,21 @@ h2, h3, h4 {
   color: var(--hd-text) !important;
   -webkit-text-fill-color: var(--hd-text) !important;
   border-color: var(--hd-border) !important;
+  border-radius: 0.7rem !important;
+  background-clip: padding-box !important;
+}
+
+[data-testid="stNumberInputContainer"],
+[data-testid="stTextInputRootElement"],
+[data-testid="stTextAreaRootElement"] {
+  overflow: hidden;
+}
+
+[data-testid="stNumberInputField"],
+[data-testid="stTextInputRootElement"] input,
+[data-testid="stTextAreaRootElement"] textarea {
+  background: transparent !important;
+  border-radius: inherit !important;
 }
 
 [data-testid="stNumberInputContainer"] button,
@@ -229,6 +251,8 @@ h2, h3, h4 {
   background: var(--hd-surface-strong) !important;
   color: var(--hd-text) !important;
   border-color: var(--hd-border) !important;
+  border-radius: 0.65rem !important;
+  background-clip: padding-box !important;
 }
 
 [data-baseweb="input"] input,
