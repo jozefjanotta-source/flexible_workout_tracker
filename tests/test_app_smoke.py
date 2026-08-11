@@ -143,7 +143,7 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 next(
                     button for button in app.button
-                    if button.label == "+ 0.25"
+                    if button.label == "+"
                 ).click().run()
                 self.assertEqual(
                     next(

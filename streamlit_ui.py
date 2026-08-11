@@ -818,7 +818,7 @@ def _workout_exercise_card(
             help="Use the minus and plus buttons; each step is 0.25 kg.",
         )
         weight_plus_col.button(
-            "+ 0.25",
+            "+",
             key=f"increase_{weight_key}",
             help="Start or increase the weight by 0.25 kg.",
             on_click=_increase_draft_weight,
