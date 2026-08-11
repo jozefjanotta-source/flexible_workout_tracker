@@ -192,6 +192,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(progress.iloc[0]["weight"], 60.0)
         self.assertEqual(progress.iloc[0]["reps"], 8)
         self.assertEqual(days_since_previous_workout(db_path=self.db_path), 3)
+        self.assertEqual(
+            days_since_previous_workout(db_path=self.db_path, today=session_day), 0
+        )
 
     def test_schema_has_expected_tables(self) -> None:
         with closing(sqlite3.connect(self.db_path)) as connection:

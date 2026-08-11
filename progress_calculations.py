@@ -19,7 +19,7 @@ def days_since_previous_workout(
     today: date | None = None,
 ) -> int | None:
     reference = today or date.today()
-    query = "SELECT MAX(workout_date) AS last_date FROM workout_sessions WHERE workout_date < ?"
+    query = "SELECT MAX(workout_date) AS last_date FROM workout_sessions WHERE workout_date <= ?"
     params: list[object] = [reference.isoformat()]
     if profile_id is not None:
         query += " AND profile_id = ?"
