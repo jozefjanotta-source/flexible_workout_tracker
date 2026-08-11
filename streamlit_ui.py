@@ -103,7 +103,7 @@ st.markdown(
     .block-container {max-width: 1120px; padding-top: 2rem;}
     @media (max-width: 640px) {
         .block-container {
-            padding-top: 4.75rem;
+            padding-top: 6.5rem;
             padding-left: 1rem;
             padding-right: 1rem;
             padding-bottom: 7rem;
@@ -347,7 +347,6 @@ def dashboard_page() -> None:
         "Start workout",
         type="primary",
         icon=":material/fitness_center:",
-        width="stretch",
     ):
         if next_status is not None:
             st.session_state["log_routine_id"] = next_status.routine_id
@@ -928,11 +927,9 @@ def log_workout_page() -> None:
     with st.container(key="save_workout_action"):
         save_col, cancel_col = st.columns([2, 1])
         save_workout = save_col.button(
-            "Complete and save", type="primary", width="stretch"
+            "Complete and save", type="primary"
         )
-        request_cancel = cancel_col.button(
-            "Cancel workout", width="stretch"
-        )
+        request_cancel = cancel_col.button("Cancel workout")
     if request_cancel:
         st.session_state[cancel_state_key] = True
         st.rerun()
@@ -941,9 +938,9 @@ def log_workout_page() -> None:
         st.warning("Cancel this workout and discard every unsaved value?")
         discard_col, keep_col = st.columns(2)
         discard = discard_col.button(
-            "Discard workout", type="primary", width="stretch"
+            "Discard workout", type="primary"
         )
-        keep = keep_col.button("Keep logging", width="stretch")
+        keep = keep_col.button("Keep logging")
         if keep:
             st.session_state.pop(cancel_state_key, None)
             st.rerun()
@@ -1023,9 +1020,8 @@ def _delete_completed_workout_dialog(
     confirm_delete = confirm_col.button(
         "Delete permanently",
         type="primary",
-        width="stretch",
     )
-    keep_workout = keep_col.button("Keep workout", width="stretch")
+    keep_workout = keep_col.button("Keep workout")
     if keep_workout:
         st.rerun()
     if confirm_delete and show_error(
@@ -1133,21 +1129,18 @@ def history_page() -> None:
                 data=prepared["excel"],
                 file_name=f"workout_history_{date.today().isoformat()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                width="stretch",
             )
             export_col2.download_button(
                 "Download CSV",
                 data=prepared["csv"],
                 file_name=f"workout_history_{date.today().isoformat()}.csv",
                 mime="text/csv",
-                width="stretch",
             )
             export_col3.download_button(
                 "Archive database",
                 data=prepared["backup"],
                 file_name=f"workout_tracker_backup_{date.today().isoformat()}.db",
                 mime="application/vnd.sqlite3",
-                width="stretch",
             )
 
     if not sessions:
@@ -1496,7 +1489,6 @@ def render_shared_header() -> None:
         with settings_col.popover(
             "Settings",
             icon=":material/settings:",
-            width="stretch",
         ):
             st.markdown("#### Appearance")
             st.radio(

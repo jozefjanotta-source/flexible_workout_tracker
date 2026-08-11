@@ -180,6 +180,8 @@ textarea::placeholder {
 }
 
 .st-key-utility_bar {
+  position: relative;
+  z-index: 1;
   background: color-mix(in srgb, var(--hd-surface) 94%, transparent);
   border: 1px solid color-mix(in srgb, var(--hd-border) 75%, transparent);
   border-radius: 0.85rem;
@@ -200,7 +202,6 @@ textarea::placeholder {
 
 .st-key-utility_bar [data-testid="stPopover"] button {
   min-height: 3.2rem;
-  width: 100%;
 }
 
 .st-key-workout_selector {
@@ -223,7 +224,7 @@ textarea::placeholder {
   }
 
   .stMainBlockContainer {
-    padding: 0.8rem 0.7rem 4rem;
+    padding: 6.5rem 0.7rem 4rem;
   }
 
   h1 {
