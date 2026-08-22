@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,7 +62,7 @@ class AppSmokeTests(unittest.TestCase):
                     )
                 )
                 reps = next(
-                    widget for widget in app.selectbox
+                    widget for widget in app.number_input
                     if widget.label == "Reps"
                 )
                 intensity = next(
@@ -78,10 +79,9 @@ class AppSmokeTests(unittest.TestCase):
                     ["Not recorded"]
                     + [str(value) for value in range(1, 21)],
                 )
-                self.assertEqual(
-                    list(reps.options),
-                    [str(value) for value in range(1, 101)],
-                )
+                self.assertEqual(reps.min, 1)
+                self.assertEqual(reps.max, 100)
+                self.assertEqual(reps.step, 1)
                 self.assertEqual(
                     list(intensity.options),
                     [
@@ -97,6 +97,9 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 self.assertTrue(
                     any(widget.label == "Weight" for widget in app.number_input)
+                )
+                self.assertFalse(
+                    any(widget.label == "Completed" for widget in app.checkbox)
                 )
                 next(
                     button for button in app.button
@@ -137,7 +140,7 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 self.assertIsNone(
                     next(
-                        widget for widget in app.selectbox
+                        widget for widget in app.number_input
                         if widget.label == "Reps"
                     ).value
                 )
@@ -152,7 +155,6 @@ class AppSmokeTests(unittest.TestCase):
                     ).value,
                     0.25,
                 )
-                app.checkbox[0].set_value(True)
                 weight_input = next(
                     widget for widget in app.number_input
                     if widget.label == "Weight"
@@ -182,7 +184,7 @@ class AppSmokeTests(unittest.TestCase):
                     [caption.value for caption in app.caption],
                 )
                 next(
-                    widget for widget in app.selectbox
+                    widget for widget in app.number_input
                     if widget.label == "Reps"
                 ).set_value(8)
                 next(
@@ -219,17 +221,44 @@ class AppSmokeTests(unittest.TestCase):
                 self.assertTrue(
                     any(message.value.startswith("Previous |") for message in app.info)
                 )
-                self.assertIsNone(
+                self.assertEqual(
                     next(
                         widget for widget in app.number_input
                         if widget.label == "Weight"
-                    ).value
+                    ).value,
+                    50.25,
                 )
-                self.assertIsNone(
+                self.assertEqual(
                     next(
-                        widget for widget in app.selectbox
+                        widget for widget in app.number_input
                         if widget.label == "Reps"
-                    ).value
+                    ).value,
+                    8,
+                )
+                self.assertFalse(
+                    any("✓" in expander.label for expander in app.expander)
+                )
+                next(
+                    button for button in app.button
+                    if button.label == "Complete and save"
+                ).click().run()
+                self.assertIn(
+                    "Log at least one completed set before saving.",
+                    [message.value for message in app.error],
+                )
+                with sqlite3.connect(db_path) as connection:
+                    session_count = connection.execute(
+                        "SELECT COUNT(*) FROM workout_sessions"
+                    ).fetchone()[0]
+                self.assertEqual(session_count, 1)
+
+                next(
+                    widget for widget in app.number_input
+                    if widget.label == "Reps"
+                ).set_value(9)
+                app.run()
+                self.assertTrue(
+                    any("✓" in expander.label for expander in app.expander)
                 )
                 app.switch_page("ui_pages/history.py").run()
                 saved_intensity_reps = next(
