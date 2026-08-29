@@ -793,29 +793,31 @@ def _workout_exercise_card(
         st.session_state.setdefault(reps_key, int(previous_set["reps"]))
     completed_before_render = bool(st.session_state.get(completed_key, False))
     exercise_row = st.container(
+        key=f"log_exercise_row_{item.id}",
         horizontal=True,
         vertical_alignment="center",
         gap="small",
     )
     card_col = exercise_row.container(width="stretch")
-    if exercise_row.button(
-        "↑",
-        key=f"log_move_up_{item.id}",
-        disabled=not can_move_up,
-        help=f"Move {item.exercise_name} earlier",
-        type="tertiary",
-        width="content",
-    ) and show_error(lambda: move_workout_exercise(item.id, -1)):
-        st.rerun()
-    if exercise_row.button(
-        "↓",
-        key=f"log_move_down_{item.id}",
-        disabled=not can_move_down,
-        help=f"Move {item.exercise_name} later",
-        type="tertiary",
-        width="content",
-    ) and show_error(lambda: move_workout_exercise(item.id, 1)):
-        st.rerun()
+    if not completed_before_render:
+        if exercise_row.button(
+            "↑",
+            key=f"log_move_up_{item.id}",
+            disabled=not can_move_up,
+            help=f"Move {item.exercise_name} earlier",
+            type="tertiary",
+            width="content",
+        ) and show_error(lambda: move_workout_exercise(item.id, -1)):
+            st.rerun()
+        if exercise_row.button(
+            "↓",
+            key=f"log_move_down_{item.id}",
+            disabled=not can_move_down,
+            help=f"Move {item.exercise_name} later",
+            type="tertiary",
+            width="content",
+        ) and show_error(lambda: move_workout_exercise(item.id, 1)):
+            st.rerun()
     if completed_before_render:
         weight = st.session_state.get(f"log_saved_weight_{key_prefix}")
         reps = st.session_state.get(f"log_saved_reps_{key_prefix}")

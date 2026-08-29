@@ -684,4 +684,28 @@ button:disabled,
     width: 100%;
     flex: 1 1 100%;
   }
+
+  /* Overlay ordering controls so they do not reduce exercise-card width. */
+  [class*="st-key-log_exercise_row_"] {
+    position: relative;
+  }
+
+  [class*="st-key-log_exercise_row_"] [class*="st-key-log_move_up_"],
+  [class*="st-key-log_exercise_row_"] [class*="st-key-log_move_down_"] {
+    position: absolute;
+    top: 0.35rem;
+    z-index: 5;
+  }
+
+  [class*="st-key-log_exercise_row_"] [class*="st-key-log_move_up_"] {
+    right: 2.9rem;
+  }
+
+  [class*="st-key-log_exercise_row_"] [class*="st-key-log_move_down_"] {
+    right: 0.35rem;
+  }
+
+  [class*="st-key-log_exercise_row_"] [data-testid="stExpander"] summary {
+    padding-right: 5.6rem;
+  }
 }
