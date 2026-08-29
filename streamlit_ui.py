@@ -761,6 +761,15 @@ def _draft_key_prefix(
     )
 
 
+def _complete_draft_exercise(completed_key: str, key_prefix: str) -> None:
+    """Keep the completed values after their widgets are removed from view."""
+    for field in ("weight", "reps", "intensity", "intensity_reps", "set_notes"):
+        st.session_state[f"log_saved_{field}_{key_prefix}"] = st.session_state.get(
+            f"log_{field}_{key_prefix}"
+        )
+    st.session_state[completed_key] = True
+
+
 def _workout_exercise_card(
     item: WorkoutExercise,
     *,
@@ -775,15 +784,60 @@ def _workout_exercise_card(
     key_prefix = _draft_key_prefix(profile_id, workout_id, item.id)
     weight_key = f"log_weight_{key_prefix}"
     reps_key = f"log_reps_{key_prefix}"
+    completed_key = f"log_done_{key_prefix}"
+    completed_widget_key = f"log_done_widget_{key_prefix}"
     if previous_set is not None:
         st.session_state.setdefault(weight_key, float(previous_set["weight"]))
         st.session_state.setdefault(reps_key, int(previous_set["reps"]))
-    completed_before_render = bool(
-        st.session_state.get(f"log_done_{key_prefix}", False)
-    )
-    status = " ✓" if completed_before_render else ""
+    completed_before_render = bool(st.session_state.get(completed_key, False))
+    if completed_before_render:
+        weight = st.session_state.get(f"log_saved_weight_{key_prefix}")
+        reps = st.session_state.get(f"log_saved_reps_{key_prefix}")
+        intensity = st.session_state.get(f"log_saved_intensity_{key_prefix}", "")
+        intensity_reps = st.session_state.get(
+            f"log_saved_intensity_reps_{key_prefix}", 0
+        )
+        set_notes = st.session_state.get(f"log_saved_set_notes_{key_prefix}", "")
+        with st.container(border=True):
+            summary_col, edit_col = st.columns(
+                [5, 1], vertical_alignment="center"
+            )
+            summary_col.markdown(f"**{item.position}. {item.exercise_name} ✓**")
+            if weight is not None and reps is not None:
+                result = f"{format_weight(weight)} kg × {int(reps)} reps"
+                if intensity:
+                    result += f" · {intensity}"
+                    if intensity_reps:
+                        result += f": {int(intensity_reps)} reps"
+                summary_col.caption(result)
+            else:
+                summary_col.caption("Weight or reps still needs attention.")
+            if edit_col.button(
+                "Edit",
+                key=f"edit_logged_set_{key_prefix}",
+                help=f"Reopen {item.exercise_name}",
+                width="stretch",
+            ):
+                st.session_state[completed_key] = False
+                st.session_state.pop(completed_widget_key, None)
+                for field in (
+                    "weight", "reps", "intensity", "intensity_reps", "set_notes"
+                ):
+                    st.session_state[f"log_{field}_{key_prefix}"] = (
+                        st.session_state.get(f"log_saved_{field}_{key_prefix}")
+                    )
+                st.rerun()
+        return {
+            "completed": True,
+            "weight": weight,
+            "reps": reps,
+            "intensity_method": intensity,
+            "intensity_reps": intensity_reps if intensity else 0,
+            "notes": set_notes,
+        }
+
     with st.expander(
-        f"{item.position}. {item.exercise_name}{status}",
+        f"{item.position}. {item.exercise_name}",
         expanded=expanded,
     ):
         st.caption(
@@ -849,8 +903,10 @@ def _workout_exercise_card(
         )
         completed = st.checkbox(
             "Log this set",
-            key=f"log_done_{key_prefix}",
+            key=completed_widget_key,
             help="Select after weight, reps, intensity work, and notes are ready.",
+            on_change=_complete_draft_exercise,
+            args=(completed_key, key_prefix),
         )
     return {
         "completed": completed,
@@ -909,7 +965,12 @@ def log_workout_page() -> None:
         )
     configured = list_workout_exercises(workout_id)
 
-    with st.expander("Adjust workout exercises"):
+    with st.container(border=True):
+        st.markdown("#### Exercise sequence")
+        st.caption(
+            "Add an exercise that was not planned, or use the arrows to change "
+            "the order for this workout."
+        )
         active_exercises = list_exercises(active_only=True)
         configured_exercise_ids = {item.exercise_id for item in configured}
         available_exercises = [
@@ -988,8 +1049,9 @@ def log_workout_page() -> None:
                 profile_id, workout_id, configured_item.id
             )
             for field in (
-                "done", "confirmed", "weight", "reps", "intensity",
-                "intensity_reps", "set_notes",
+                "done", "done_widget", "confirmed", "weight", "reps", "intensity",
+                "intensity_reps", "set_notes", "saved_weight", "saved_reps",
+                "saved_intensity", "saved_intensity_reps", "saved_set_notes",
             ):
                 st.session_state.pop(f"log_{field}_{key_prefix}", None)
 

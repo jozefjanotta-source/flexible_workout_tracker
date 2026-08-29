@@ -195,7 +195,10 @@ class AppSmokeTests(unittest.TestCase):
                     if widget.label == "Log this set"
                 ).check().run()
                 self.assertTrue(
-                    any("✓" in expander.label for expander in app.expander)
+                    any(button.label == "Edit" for button in app.button)
+                )
+                self.assertTrue(
+                    any("50.25 kg × 8 reps" in caption.value for caption in app.caption)
                 )
                 next(
                     button for button in app.button
