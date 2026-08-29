@@ -70,15 +70,13 @@ class AppSmokeTests(unittest.TestCase):
                     if widget.label == "Intensity method"
                 )
                 intensity_reps = next(
-                    widget for widget in app.selectbox
+                    widget for widget in app.number_input
                     if widget.label == "Intensity reps"
                 )
-                self.assertTrue(intensity_reps.disabled)
-                self.assertEqual(
-                    list(intensity_reps.options),
-                    ["Not recorded"]
-                    + [str(value) for value in range(1, 21)],
-                )
+                self.assertFalse(intensity_reps.disabled)
+                self.assertEqual(intensity_reps.min, 0)
+                self.assertEqual(intensity_reps.max, 20)
+                self.assertEqual(intensity_reps.step, 1)
                 self.assertEqual(reps.min, 1)
                 self.assertEqual(reps.max, 100)
                 self.assertEqual(reps.step, 1)
@@ -98,8 +96,8 @@ class AppSmokeTests(unittest.TestCase):
                 self.assertTrue(
                     any(widget.label == "Weight" for widget in app.number_input)
                 )
-                self.assertFalse(
-                    any(widget.label == "Completed" for widget in app.checkbox)
+                self.assertTrue(
+                    any(widget.label == "Log this set" for widget in app.checkbox)
                 )
                 next(
                     button for button in app.button
@@ -144,17 +142,6 @@ class AppSmokeTests(unittest.TestCase):
                         if widget.label == "Reps"
                     ).value
                 )
-                next(
-                    button for button in app.button
-                    if button.label == "+"
-                ).click().run()
-                self.assertEqual(
-                    next(
-                        widget for widget in app.number_input
-                        if widget.label == "Weight"
-                    ).value,
-                    0.25,
-                )
                 weight_input = next(
                     widget for widget in app.number_input
                     if widget.label == "Weight"
@@ -193,11 +180,15 @@ class AppSmokeTests(unittest.TestCase):
                 ).set_value("Rest-pause")
                 app.run()
                 intensity_reps = next(
-                    widget for widget in app.selectbox
+                    widget for widget in app.number_input
                     if widget.label == "Intensity reps"
                 )
                 self.assertFalse(intensity_reps.disabled)
                 intensity_reps.set_value(2)
+                next(
+                    widget for widget in app.checkbox
+                    if widget.label == "Log this set"
+                ).check()
                 next(
                     button for button in app.button
                     if button.label == "Complete and save"
@@ -256,10 +247,10 @@ class AppSmokeTests(unittest.TestCase):
                     widget for widget in app.number_input
                     if widget.label == "Reps"
                 ).set_value(9)
-                app.run()
-                self.assertTrue(
-                    any("✓" in expander.label for expander in app.expander)
-                )
+                next(
+                    widget for widget in app.checkbox
+                    if widget.label == "Log this set"
+                ).check()
                 app.switch_page("ui_pages/history.py").run()
                 saved_intensity_reps = next(
                     widget for widget in app.selectbox

@@ -66,7 +66,7 @@ from workout_logging import (
 
 
 APP_SCHEMA_VERSION = "v7_configurable_routine_rotation"
-DRAFT_WIDGET_VERSION = 2
+DRAFT_WIDGET_VERSION = 3
 
 
 @st.cache_resource(show_spinner=False)
@@ -756,24 +756,6 @@ def _draft_key_prefix(workout_id: int, workout_exercise_id: int) -> str:
     return f"v{DRAFT_WIDGET_VERSION}_{workout_id}_{workout_exercise_id}_1"
 
 
-def _confirm_draft_exercise(confirmation_key: str) -> None:
-    """Record that the current-session weight or reps was actively changed."""
-    st.session_state[confirmation_key] = True
-
-
-def _adjust_draft_weight(
-    weight_key: str, confirmation_key: str, change: float
-) -> None:
-    """Adjust a draft weight while allowing the initial value to stay blank."""
-    current = st.session_state.get(weight_key)
-    if current is None:
-        updated = 0.25 if change > 0 else 0.0
-    else:
-        updated = float(current) + change
-    st.session_state[weight_key] = min(1000.0, max(0.0, updated))
-    _confirm_draft_exercise(confirmation_key)
-
-
 def _workout_exercise_card(
     item: WorkoutExercise,
     *,
@@ -786,19 +768,12 @@ def _workout_exercise_card(
     key_prefix = _draft_key_prefix(workout_id, item.id)
     weight_key = f"log_weight_{key_prefix}"
     reps_key = f"log_reps_{key_prefix}"
-    confirmation_key = f"log_confirmed_{key_prefix}"
     if previous_set is not None:
         st.session_state.setdefault(weight_key, float(previous_set["weight"]))
         st.session_state.setdefault(reps_key, int(previous_set["reps"]))
-    completed_before_render = (
-        bool(st.session_state.get(confirmation_key, False))
-        and st.session_state.get(weight_key) is not None
-        and st.session_state.get(reps_key) is not None
-    )
-    status = " ✓" if completed_before_render else ""
     with st.expander(
-        f"{item.position}. {item.exercise_name}{status}",
-        expanded=item.position == 1 and not completed_before_render,
+        f"{item.position}. {item.exercise_name}",
+        expanded=item.position == 1,
     ):
         st.caption(
             f"Target: 1 working set of "
@@ -814,10 +789,7 @@ def _workout_exercise_card(
             st.caption("No previous result for this exercise.")
 
         weight_col, reps_col = st.columns(2)
-        weight_input_col, weight_minus_col, weight_plus_col = weight_col.columns(
-            [12, 0.8, 0.8], gap=None, vertical_alignment="bottom"
-        )
-        weight = weight_input_col.number_input(
+        weight = weight_col.number_input(
             "Weight",
             min_value=0.0,
             max_value=1000.0,
@@ -826,25 +798,7 @@ def _workout_exercise_card(
             format="%g",
             placeholder="Enter weight",
             key=weight_key,
-            help="Use the minus and plus buttons; each step is 0.25 kg.",
-            on_change=_confirm_draft_exercise,
-            args=(confirmation_key,),
-        )
-        weight_minus_col.button(
-            "−",
-            key=f"decrease_{weight_key}",
-            help="Decrease the weight by 0.25 kg.",
-            on_click=_adjust_draft_weight,
-            args=(weight_key, confirmation_key, -0.25),
-            width="stretch",
-        )
-        weight_plus_col.button(
-            "+",
-            key=f"increase_{weight_key}",
-            help="Start or increase the weight by 0.25 kg.",
-            on_click=_adjust_draft_weight,
-            args=(weight_key, confirmation_key, 0.25),
-            width="stretch",
+            help="Use the field controls; each step is 0.25 kg.",
         )
         weight_col.caption(
             f"{format_weight(weight)} kg" if weight is not None else "Not entered"
@@ -857,34 +811,35 @@ def _workout_exercise_card(
             step=1,
             placeholder="Enter reps",
             key=reps_key,
-            on_change=_confirm_draft_exercise,
-            args=(confirmation_key,),
         )
-        with st.popover("Intensity / notes"):
-            intensity_col, intensity_reps_col = st.columns([2, 1])
-            intensity = intensity_col.selectbox(
-                "Intensity method",
-                INTENSITY_METHODS,
-                key=f"log_intensity_{key_prefix}",
-                format_func=lambda value: value or "None",
-            )
-            intensity_reps = intensity_reps_col.selectbox(
-                "Intensity reps",
-                INTENSITY_REP_OPTIONS,
-                key=f"log_intensity_reps_{key_prefix}",
-                disabled=not bool(intensity),
-                format_func=lambda value: "Not recorded" if value == 0 else str(value),
-                help="Reps performed using the selected intensity method.",
-            )
-            set_notes = st.text_input(
-                "Set notes",
-                placeholder="Optional",
-                key=f"log_set_notes_{key_prefix}",
-            )
-        completed = (
-            bool(st.session_state.get(confirmation_key, False))
-            and weight is not None
-            and reps is not None
+        intensity_col, intensity_reps_col = st.columns([2, 1])
+        intensity = intensity_col.selectbox(
+            "Intensity method",
+            INTENSITY_METHODS,
+            key=f"log_intensity_{key_prefix}",
+            format_func=lambda value: value or "None",
+        )
+        intensity_reps = intensity_reps_col.number_input(
+            "Intensity reps",
+            min_value=0,
+            max_value=20,
+            value=0,
+            step=1,
+            key=f"log_intensity_reps_{key_prefix}",
+            help=(
+                "Reps performed using the selected intensity method. "
+                "Leave at 0 when no intensity method is used."
+            ),
+        )
+        set_notes = st.text_input(
+            "Set notes",
+            placeholder="Optional",
+            key=f"log_set_notes_{key_prefix}",
+        )
+        completed = st.checkbox(
+            "Log this set",
+            key=f"log_done_{key_prefix}",
+            help="Select after weight, reps, intensity work, and notes are ready.",
         )
     return {
         "completed": completed,
@@ -949,20 +904,6 @@ def log_workout_page() -> None:
     date_key = f"log_date_{workout_id}"
     time_key = f"log_time_{workout_id}"
     notes_key = f"log_notes_{workout_id}"
-    with st.expander("Workout details"):
-        col1, col2 = st.columns(2)
-        session_date = col1.date_input("Workout date", date.today(), key=date_key)
-        completion_time = col2.time_input(
-            "Completion time",
-            datetime.now().time().replace(microsecond=0),
-            key=time_key,
-        )
-        session_notes = st.text_area(
-            "Session notes",
-            placeholder="Optional notes about the workout",
-            key=notes_key,
-        )
-
     previous_results = get_previous_results(
         (item.exercise_id for item in configured), profile_id=profile_id
     )
@@ -978,32 +919,40 @@ def log_workout_page() -> None:
             ):
                 st.session_state.pop(f"log_{field}_{key_prefix}", None)
 
-    progress_placeholder = st.empty()
-    for item in configured:
-        draft_sets[item.id] = [
-            _workout_exercise_card(
-                item,
-                workout_id=workout_id,
-                previous=previous_results.get(item.exercise_id),
-            )
-        ]
-    completed_count = sum(
-        bool(row["completed"])
-        for rows in draft_sets.values()
-        for row in rows
-    )
-    progress_placeholder.progress(
-        completed_count / len(configured),
-        text=f"{completed_count} of {len(configured)} exercises completed",
-    )
-
     cancel_state_key = f"cancel_workout_{workout_id}"
-    with st.container(key="save_workout_action"):
+    with st.form(f"workout_log_{workout_id}", clear_on_submit=False):
+        with st.expander("Workout details"):
+            col1, col2 = st.columns(2)
+            session_date = col1.date_input(
+                "Workout date", date.today(), key=date_key
+            )
+            completion_time = col2.time_input(
+                "Completion time",
+                datetime.now().time().replace(microsecond=0),
+                key=time_key,
+            )
+            session_notes = st.text_area(
+                "Session notes",
+                placeholder="Optional notes about the workout",
+                key=notes_key,
+            )
+        st.caption(
+            "Enter every result, including intensity work and notes. "
+            "Nothing is processed until you submit the workout."
+        )
+        for item in configured:
+            draft_sets[item.id] = [
+                _workout_exercise_card(
+                    item,
+                    workout_id=workout_id,
+                    previous=previous_results.get(item.exercise_id),
+                )
+            ]
         save_col, cancel_col = st.columns([2, 1])
-        save_workout = save_col.button(
+        save_workout = save_col.form_submit_button(
             "Complete and save", type="primary"
         )
-        request_cancel = cancel_col.button("Cancel workout")
+        request_cancel = cancel_col.form_submit_button("Cancel workout")
     if request_cancel:
         st.session_state[cancel_state_key] = True
         st.rerun()
@@ -1031,7 +980,13 @@ def log_workout_page() -> None:
             item.exercise_name
             for item in configured
             for row in draft_sets[item.id]
-            if (row["weight"] is None) != (row["reps"] is None)
+            if (
+                (row["weight"] is None) != (row["reps"] is None)
+                or (
+                    bool(row["completed"])
+                    and (row["weight"] is None or row["reps"] is None)
+                )
+            )
         ]
         if incomplete_exercises:
             st.error(
