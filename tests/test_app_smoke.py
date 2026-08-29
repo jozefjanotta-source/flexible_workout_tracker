@@ -6,11 +6,16 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from datetime import date, datetime
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
+from exercise_management import list_exercises
 from init_db import initialize_database
+from profile_management import create_profile, default_profile_id
+from routine_management import list_routines, list_workout_exercises, list_workouts
+from workout_logging import ExerciseLog, SetEntry, save_completed_session
 
 
 class AppSmokeTests(unittest.TestCase):
@@ -188,7 +193,10 @@ class AppSmokeTests(unittest.TestCase):
                 next(
                     widget for widget in app.checkbox
                     if widget.label == "Log this set"
-                ).check()
+                ).check().run()
+                self.assertTrue(
+                    any("✓" in expander.label for expander in app.expander)
+                )
                 next(
                     button for button in app.button
                     if button.label == "Complete and save"
@@ -272,6 +280,93 @@ class AppSmokeTests(unittest.TestCase):
                         for button in app.button
                     )
                 )
+            finally:
+                if previous_path is None:
+                    os.environ.pop("WORKOUT_DB_PATH", None)
+                else:
+                    os.environ["WORKOUT_DB_PATH"] = previous_path
+
+    def test_workout_drafts_follow_profile_and_plan_can_be_adjusted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            previous_path = os.environ.get("WORKOUT_DB_PATH")
+            db_path = Path(temp_dir) / "profiles.db"
+            os.environ["WORKOUT_DB_PATH"] = str(db_path)
+            initialize_database(db_path)
+            try:
+                primary_profile_id = default_profile_id(db_path=db_path)
+                other_profile_id = create_profile("Training partner", db_path=db_path)
+                routine = list_routines(active_only=True, db_path=db_path)[0]
+                workout = list_workouts(
+                    routine.id, active_only=True, db_path=db_path
+                )[0]
+                configured = list_workout_exercises(workout.id, db_path=db_path)
+                first_exercise = configured[0]
+                for profile_id, weight, reps in (
+                    (primary_profile_id, 40.0, 8),
+                    (other_profile_id, 75.0, 5),
+                ):
+                    save_completed_session(
+                        routine.id,
+                        workout.id,
+                        date(2026, 8, 20),
+                        datetime(2026, 8, 20, 18, 0),
+                        [
+                            ExerciseLog(
+                                first_exercise.id,
+                                (SetEntry(weight, reps),),
+                            )
+                        ],
+                        profile_id=profile_id,
+                        db_path=db_path,
+                    )
+
+                app_path = Path(__file__).resolve().parents[1] / "app.py"
+                app = AppTest.from_file(str(app_path), default_timeout=20).run()
+                app.switch_page("ui_pages/workout.py").run()
+                self.assertEqual(
+                    next(
+                        widget for widget in app.number_input
+                        if widget.label == "Weight"
+                    ).value,
+                    40.0,
+                )
+                next(
+                    widget for widget in app.selectbox
+                    if widget.key == "active_profile_id"
+                ).set_value(other_profile_id).run()
+                self.assertEqual(
+                    next(
+                        widget for widget in app.number_input
+                        if widget.label == "Weight"
+                    ).value,
+                    75.0,
+                )
+
+                configured_ids = {item.exercise_id for item in configured}
+                extra = next(
+                    item
+                    for item in list_exercises(active_only=True, db_path=db_path)
+                    if item.id not in configured_ids
+                )
+                next(
+                    widget for widget in app.selectbox
+                    if widget.label == "Add an unplanned exercise"
+                ).set_value(extra.id)
+                next(
+                    button for button in app.button
+                    if button.key == f"log_add_exercise_button_{workout.id}"
+                ).click().run()
+                adjusted = list_workout_exercises(workout.id, db_path=db_path)
+                added = next(item for item in adjusted if item.exercise_id == extra.id)
+                self.assertEqual(added.position, len(adjusted))
+
+                next(
+                    button for button in app.button
+                    if button.key == f"log_move_up_{added.id}"
+                ).click().run()
+                reordered = list_workout_exercises(workout.id, db_path=db_path)
+                moved = next(item for item in reordered if item.id == added.id)
+                self.assertEqual(moved.position, len(reordered) - 1)
             finally:
                 if previous_path is None:
                     os.environ.pop("WORKOUT_DB_PATH", None)

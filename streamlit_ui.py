@@ -66,7 +66,7 @@ from workout_logging import (
 
 
 APP_SCHEMA_VERSION = "v7_configurable_routine_rotation"
-DRAFT_WIDGET_VERSION = 3
+DRAFT_WIDGET_VERSION = 4
 
 
 @st.cache_resource(show_spinner=False)
@@ -751,29 +751,40 @@ def routines_page() -> None:
                         st.rerun()
 
 
-def _draft_key_prefix(workout_id: int, workout_exercise_id: int) -> str:
+def _draft_key_prefix(
+    profile_id: int, workout_id: int, workout_exercise_id: int
+) -> str:
     """Return a versioned key so changed defaults do not reuse stale drafts."""
-    return f"v{DRAFT_WIDGET_VERSION}_{workout_id}_{workout_exercise_id}_1"
+    return (
+        f"v{DRAFT_WIDGET_VERSION}_{profile_id}_{workout_id}_"
+        f"{workout_exercise_id}_1"
+    )
 
 
 def _workout_exercise_card(
     item: WorkoutExercise,
     *,
+    profile_id: int,
     workout_id: int,
     previous: dict[str, object] | None,
+    expanded: bool,
 ) -> dict[str, object]:
     """Render one compact, phone-friendly exercise entry card."""
     previous_sets = list(previous["sets"]) if previous else []
     previous_set = previous_sets[0] if previous_sets else None
-    key_prefix = _draft_key_prefix(workout_id, item.id)
+    key_prefix = _draft_key_prefix(profile_id, workout_id, item.id)
     weight_key = f"log_weight_{key_prefix}"
     reps_key = f"log_reps_{key_prefix}"
     if previous_set is not None:
         st.session_state.setdefault(weight_key, float(previous_set["weight"]))
         st.session_state.setdefault(reps_key, int(previous_set["reps"]))
+    completed_before_render = bool(
+        st.session_state.get(f"log_done_{key_prefix}", False)
+    )
+    status = " ✓" if completed_before_render else ""
     with st.expander(
-        f"{item.position}. {item.exercise_name}",
-        expanded=item.position == 1,
+        f"{item.position}. {item.exercise_name}{status}",
+        expanded=expanded,
     ):
         st.caption(
             f"Target: 1 working set of "
@@ -897,13 +908,74 @@ def log_workout_page() -> None:
             key="log_workout_id",
         )
     configured = list_workout_exercises(workout_id)
+
+    with st.expander("Adjust workout exercises"):
+        active_exercises = list_exercises(active_only=True)
+        configured_exercise_ids = {item.exercise_id for item in configured}
+        available_exercises = [
+            item for item in active_exercises if item.id not in configured_exercise_ids
+        ]
+        if available_exercises:
+            exercise_labels = {
+                item.id: f"{item.name} · {item.equipment}"
+                for item in available_exercises
+            }
+            add_col, button_col = st.columns([4, 1], vertical_alignment="bottom")
+            extra_exercise_id = add_col.selectbox(
+                "Add an unplanned exercise",
+                list(exercise_labels),
+                format_func=exercise_labels.get,
+                key=f"log_add_exercise_{workout_id}",
+            )
+            if button_col.button(
+                "Add",
+                key=f"log_add_exercise_button_{workout_id}",
+                width="stretch",
+            ) and show_error(
+                lambda: add_exercise_to_workout(
+                    workout_id,
+                    extra_exercise_id,
+                    target_min_reps=6,
+                    target_max_reps=10,
+                    target_sets=1,
+                )
+            ):
+                st.success("Exercise added to this workout.")
+                st.rerun()
+        else:
+            st.caption("Every active library exercise is already in this workout.")
+
+        if configured:
+            st.caption("Use the arrows to change the saved exercise sequence.")
+            for index, item in enumerate(configured):
+                label_col, up_col, down_col = st.columns(
+                    [6, 1, 1], vertical_alignment="center"
+                )
+                label_col.write(f"{item.position}. {item.exercise_name}")
+                if up_col.button(
+                    "↑",
+                    key=f"log_move_up_{item.id}",
+                    disabled=index == 0,
+                ) and show_error(
+                    lambda current=item: move_workout_exercise(current.id, -1)
+                ):
+                    st.rerun()
+                if down_col.button(
+                    "↓",
+                    key=f"log_move_down_{item.id}",
+                    disabled=index == len(configured) - 1,
+                ) and show_error(
+                    lambda current=item: move_workout_exercise(current.id, 1)
+                ):
+                    st.rerun()
+
     if not configured:
-        st.warning("This workout has no exercises. Add some in Manage.")
+        st.warning("This workout has no exercises. Add one above to begin logging.")
         return
 
-    date_key = f"log_date_{workout_id}"
-    time_key = f"log_time_{workout_id}"
-    notes_key = f"log_notes_{workout_id}"
+    date_key = f"log_date_{profile_id}_{workout_id}"
+    time_key = f"log_time_{profile_id}_{workout_id}"
+    notes_key = f"log_notes_{profile_id}_{workout_id}"
     previous_results = get_previous_results(
         (item.exercise_id for item in configured), profile_id=profile_id
     )
@@ -912,47 +984,59 @@ def log_workout_page() -> None:
     def clear_draft_widgets() -> None:
         """Remove every widget value belonging to the current workout draft."""
         for configured_item in configured:
-            key_prefix = _draft_key_prefix(workout_id, configured_item.id)
+            key_prefix = _draft_key_prefix(
+                profile_id, workout_id, configured_item.id
+            )
             for field in (
                 "done", "confirmed", "weight", "reps", "intensity",
                 "intensity_reps", "set_notes",
             ):
                 st.session_state.pop(f"log_{field}_{key_prefix}", None)
 
-    cancel_state_key = f"cancel_workout_{workout_id}"
-    with st.form(f"workout_log_{workout_id}", clear_on_submit=False):
-        with st.expander("Workout details"):
-            col1, col2 = st.columns(2)
-            session_date = col1.date_input(
-                "Workout date", date.today(), key=date_key
-            )
-            completion_time = col2.time_input(
-                "Completion time",
-                datetime.now().time().replace(microsecond=0),
-                key=time_key,
-            )
-            session_notes = st.text_area(
-                "Session notes",
-                placeholder="Optional notes about the workout",
-                key=notes_key,
-            )
-        st.caption(
-            "Enter every result, including intensity work and notes. "
-            "Nothing is processed until you submit the workout."
+    cancel_state_key = f"cancel_workout_{profile_id}_{workout_id}"
+    with st.expander("Workout details"):
+        col1, col2 = st.columns(2)
+        session_date = col1.date_input("Workout date", date.today(), key=date_key)
+        completion_time = col2.time_input(
+            "Completion time",
+            datetime.now().time().replace(microsecond=0),
+            key=time_key,
         )
-        for item in configured:
-            draft_sets[item.id] = [
-                _workout_exercise_card(
-                    item,
-                    workout_id=workout_id,
-                    previous=previous_results.get(item.exercise_id),
+        session_notes = st.text_area(
+            "Session notes",
+            placeholder="Optional notes about the workout",
+            key=notes_key,
+        )
+    st.caption(
+        "Check Log this set when an exercise is complete. Its card will close "
+        "and the next exercise will open."
+    )
+    first_incomplete_id = next(
+        (
+            item.id
+            for item in configured
+            if not bool(
+                st.session_state.get(
+                    f"log_done_{_draft_key_prefix(profile_id, workout_id, item.id)}",
+                    False,
                 )
-            ]
-        save_col, cancel_col = st.columns([2, 1])
-        save_workout = save_col.form_submit_button(
-            "Complete and save", type="primary"
-        )
-        request_cancel = cancel_col.form_submit_button("Cancel workout")
+            )
+        ),
+        None,
+    )
+    for item in configured:
+        draft_sets[item.id] = [
+            _workout_exercise_card(
+                item,
+                profile_id=profile_id,
+                workout_id=workout_id,
+                previous=previous_results.get(item.exercise_id),
+                expanded=item.id == first_incomplete_id,
+            )
+        ]
+    save_col, cancel_col = st.columns([2, 1])
+    save_workout = save_col.button("Complete and save", type="primary")
+    request_cancel = cancel_col.button("Cancel workout")
     if request_cancel:
         st.session_state[cancel_state_key] = True
         st.rerun()
