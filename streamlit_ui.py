@@ -1085,6 +1085,14 @@ def log_workout_page() -> None:
                 st.session_state.pop(f"log_{field}_{key_prefix}", None)
 
     cancel_state_key = f"cancel_workout_{profile_id}_{workout_id}"
+    save_request_key = f"save_workout_request_{profile_id}_{workout_id}"
+
+    def request_local_cancel() -> None:
+        st.session_state[cancel_state_key] = True
+
+    def keep_local_draft() -> None:
+        st.session_state.pop(cancel_state_key, None)
+
     with st.expander("Workout details"):
         col1, col2 = st.columns(2)
         session_date = col1.date_input("Workout date", date.today(), key=date_key)
@@ -1129,32 +1137,32 @@ def log_workout_page() -> None:
                 can_move_down=index < len(configured) - 1,
             )
 
-    render_exercise_drafts()
-    save_col, cancel_col = st.columns([2, 1])
-    save_workout = save_col.button("Complete and save", type="primary")
-    request_cancel = cancel_col.button("Cancel workout")
-    if request_cancel:
-        st.session_state[cancel_state_key] = True
-        st.rerun()
-
-    if st.session_state.get(cancel_state_key):
-        st.warning("Cancel this workout and discard every unsaved value?")
-        discard_col, keep_col = st.columns(2)
-        discard = discard_col.button(
-            "Discard workout", type="primary"
+        save_col, cancel_col = st.columns([2, 1])
+        save_workout_here = save_col.button(
+            "Complete and save", type="primary"
         )
-        keep = keep_col.button("Keep logging")
-        if keep:
-            st.session_state.pop(cancel_state_key, None)
-            st.rerun()
-        if discard:
-            clear_draft_widgets()
-            for key in (date_key, time_key, notes_key, cancel_state_key):
-                st.session_state.pop(key, None)
-            st.session_state["workout_cancelled"] = True
-            st.session_state["navigate_after_rerun"] = "Home"
-            st.rerun()
+        cancel_col.button(
+            "Cancel workout",
+            on_click=request_local_cancel,
+        )
+        if st.session_state.get(cancel_state_key):
+            st.warning("Cancel this workout and discard every unsaved value?")
+            discard_col, keep_col = st.columns(2)
+            discard = discard_col.button("Discard workout", type="primary")
+            keep_col.button("Keep logging", on_click=keep_local_draft)
+            if discard:
+                clear_draft_widgets()
+                for key in (date_key, time_key, notes_key, cancel_state_key):
+                    st.session_state.pop(key, None)
+                st.session_state["workout_cancelled"] = True
+                st.session_state["navigate_after_rerun"] = "Home"
+                st.rerun(scope="app")
+        if save_workout_here:
+            st.session_state[save_request_key] = True
+            st.rerun(scope="app")
 
+    render_exercise_drafts()
+    save_workout = bool(st.session_state.pop(save_request_key, False))
     if save_workout:
         incomplete_exercises = [
             item.exercise_name
