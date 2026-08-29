@@ -51,7 +51,7 @@ class AppSmokeTests(unittest.TestCase):
                 else:
                     os.environ["WORKOUT_DB_PATH"] = previous_path
 
-    def test_cancel_workout_discards_draft_and_returns_home(self) -> None:
+    def test_cancel_workout_discards_draft_locally(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             previous_path = os.environ.get("WORKOUT_DB_PATH")
             os.environ["WORKOUT_DB_PATH"] = str(Path(temp_dir) / "cancel.db")
@@ -110,12 +110,26 @@ class AppSmokeTests(unittest.TestCase):
                 ).click().run()
                 next(
                     button for button in app.button
+                    if button.label == "Keep logging"
+                ).click().run()
+                self.assertFalse(
+                    any(
+                        message.value.startswith("Cancel this workout")
+                        for message in app.warning
+                    )
+                )
+                next(
+                    button for button in app.button
+                    if button.label == "Cancel workout"
+                ).click().run()
+                next(
+                    button for button in app.button
                     if button.label == "Discard workout"
                 ).click().run()
                 self.assertFalse(app.exception)
-                self.assertIn("Dashboard", [title.value for title in app.title])
+                self.assertIn("Workout", [title.value for title in app.title])
                 self.assertIn(
-                    "Workout cancelled. Nothing was saved.",
+                    "Workout draft discarded. Nothing was saved.",
                     [message.value for message in app.info],
                 )
             finally:
