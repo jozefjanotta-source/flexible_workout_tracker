@@ -335,7 +335,7 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 next(
                     widget for widget in app.selectbox
-                    if widget.key == "active_profile_id"
+                    if widget.key == "active_profile_selector"
                 ).set_value(other_profile_id).run()
                 self.assertEqual(
                     next(
@@ -344,6 +344,32 @@ class AppSmokeTests(unittest.TestCase):
                     ).value,
                     75.0,
                 )
+                workout_selector = next(
+                    widget for widget in app.selectbox
+                    if widget.key == "log_workout_id"
+                )
+                if len(workout_selector.options) > 1:
+                    alternate_workout_id = next(
+                        option
+                        for option in workout_selector.options
+                        if option != workout.id
+                    )
+                    workout_selector.set_value(alternate_workout_id).run()
+                    self.assertEqual(
+                        next(
+                            widget for widget in app.selectbox
+                            if widget.key == "active_profile_selector"
+                        ).value,
+                        other_profile_id,
+                    )
+                    next(
+                        widget for widget in app.selectbox
+                        if widget.key == "log_workout_id"
+                    ).set_value(workout.id).run()
+                    self.assertEqual(
+                        app.session_state["active_profile_id"],
+                        other_profile_id,
+                    )
 
                 configured_ids = {item.exercise_id for item in configured}
                 extra = next(

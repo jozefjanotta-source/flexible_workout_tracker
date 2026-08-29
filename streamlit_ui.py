@@ -1664,6 +1664,17 @@ def render_shared_header() -> None:
     profile_options = {profile.id: profile.name for profile in active_profiles}
     if st.session_state.get("active_profile_id") not in profile_options:
         st.session_state["active_profile_id"] = default_profile_id()
+    selector_key = "active_profile_selector"
+    selected_profile_id = st.session_state["active_profile_id"]
+    if st.session_state.get(selector_key) != selected_profile_id:
+        st.session_state[selector_key] = selected_profile_id
+
+    def persist_profile_selection() -> None:
+        """Update profile context only when the selector itself changes."""
+        selected = st.session_state.get(selector_key)
+        if selected in profile_options:
+            st.session_state["active_profile_id"] = selected
+
     with st.container(key="utility_bar"):
         brand_col, profile_col = st.columns(
             [6, 2],
@@ -1675,7 +1686,8 @@ def render_shared_header() -> None:
             "Training profile",
             list(profile_options),
             format_func=profile_options.get,
-            key="active_profile_id",
+            key=selector_key,
+            on_change=persist_profile_selection,
             label_visibility="collapsed",
         )
     if st.session_state.pop("workout_cancelled", False):
