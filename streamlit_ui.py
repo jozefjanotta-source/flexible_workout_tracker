@@ -777,6 +777,8 @@ def _workout_exercise_card(
     workout_id: int,
     previous: dict[str, object] | None,
     expanded: bool,
+    can_move_up: bool,
+    can_move_down: bool,
 ) -> dict[str, object]:
     """Render one compact, phone-friendly exercise entry card."""
     previous_sets = list(previous["sets"]) if previous else []
@@ -790,6 +792,25 @@ def _workout_exercise_card(
         st.session_state.setdefault(weight_key, float(previous_set["weight"]))
         st.session_state.setdefault(reps_key, int(previous_set["reps"]))
     completed_before_render = bool(st.session_state.get(completed_key, False))
+    card_col, up_col, down_col = st.columns(
+        [10, 1, 1], vertical_alignment="center"
+    )
+    if up_col.button(
+        "↑",
+        key=f"log_move_up_{item.id}",
+        disabled=not can_move_up,
+        help=f"Move {item.exercise_name} earlier",
+        width="stretch",
+    ) and show_error(lambda: move_workout_exercise(item.id, -1)):
+        st.rerun()
+    if down_col.button(
+        "↓",
+        key=f"log_move_down_{item.id}",
+        disabled=not can_move_down,
+        help=f"Move {item.exercise_name} later",
+        width="stretch",
+    ) and show_error(lambda: move_workout_exercise(item.id, 1)):
+        st.rerun()
     if completed_before_render:
         weight = st.session_state.get(f"log_saved_weight_{key_prefix}")
         reps = st.session_state.get(f"log_saved_reps_{key_prefix}")
@@ -798,7 +819,7 @@ def _workout_exercise_card(
             f"log_saved_intensity_reps_{key_prefix}", 0
         )
         set_notes = st.session_state.get(f"log_saved_set_notes_{key_prefix}", "")
-        with st.container(border=True):
+        with card_col.container(border=True):
             summary_col, edit_col = st.columns(
                 [5, 1], vertical_alignment="center"
             )
@@ -836,7 +857,7 @@ def _workout_exercise_card(
             "notes": set_notes,
         }
 
-    with st.expander(
+    with card_col.expander(
         f"{item.position}. {item.exercise_name}",
         expanded=expanded,
     ):
@@ -965,12 +986,7 @@ def log_workout_page() -> None:
         )
     configured = list_workout_exercises(workout_id)
 
-    with st.container(border=True):
-        st.markdown("#### Exercise sequence")
-        st.caption(
-            "Add an exercise that was not planned, or use the arrows to change "
-            "the order for this workout."
-        )
+    with st.popover("＋ Add an unplanned exercise", width="stretch"):
         active_exercises = list_exercises(active_only=True)
         configured_exercise_ids = {item.exercise_id for item in configured}
         available_exercises = [
@@ -1005,30 +1021,6 @@ def log_workout_page() -> None:
                 st.rerun()
         else:
             st.caption("Every active library exercise is already in this workout.")
-
-        if configured:
-            st.caption("Use the arrows to change the saved exercise sequence.")
-            for index, item in enumerate(configured):
-                label_col, up_col, down_col = st.columns(
-                    [6, 1, 1], vertical_alignment="center"
-                )
-                label_col.write(f"{item.position}. {item.exercise_name}")
-                if up_col.button(
-                    "↑",
-                    key=f"log_move_up_{item.id}",
-                    disabled=index == 0,
-                ) and show_error(
-                    lambda current=item: move_workout_exercise(current.id, -1)
-                ):
-                    st.rerun()
-                if down_col.button(
-                    "↓",
-                    key=f"log_move_down_{item.id}",
-                    disabled=index == len(configured) - 1,
-                ) and show_error(
-                    lambda current=item: move_workout_exercise(current.id, 1)
-                ):
-                    st.rerun()
 
     if not configured:
         st.warning("This workout has no exercises. Add one above to begin logging.")
@@ -1086,7 +1078,7 @@ def log_workout_page() -> None:
         ),
         None,
     )
-    for item in configured:
+    for index, item in enumerate(configured):
         draft_sets[item.id] = [
             _workout_exercise_card(
                 item,
@@ -1094,6 +1086,8 @@ def log_workout_page() -> None:
                 workout_id=workout_id,
                 previous=previous_results.get(item.exercise_id),
                 expanded=item.id == first_incomplete_id,
+                can_move_up=index > 0,
+                can_move_down=index < len(configured) - 1,
             )
         ]
     save_col, cancel_col = st.columns([2, 1])
