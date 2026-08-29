@@ -550,6 +550,17 @@ button:disabled,
   border-color: var(--workout-blue) !important;
 }
 
+/* Keep workout-order arrows compact beside the exercise card, including mobile. */
+[class*="st-key-log_move_up_"] button,
+[class*="st-key-log_move_down_"] button {
+  width: 2.25rem !important;
+  min-width: 2.25rem !important;
+  max-width: 2.25rem !important;
+  min-height: 2.25rem !important;
+  padding: 0 !important;
+  border-radius: 0.55rem !important;
+}
+
 [data-testid="stExpander"] details,
 [data-testid="stExpander"] summary,
 [data-testid="stExpander"] summary > div {
