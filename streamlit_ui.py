@@ -770,6 +770,32 @@ def _complete_draft_exercise(completed_key: str, key_prefix: str) -> None:
     st.session_state[completed_key] = True
 
 
+def _draft_exercise_values(
+    profile_id: int, workout_id: int, workout_exercise_id: int
+) -> dict[str, object]:
+    """Read a draft from local session state without touching the database."""
+    key_prefix = _draft_key_prefix(profile_id, workout_id, workout_exercise_id)
+    completed = bool(st.session_state.get(f"log_done_{key_prefix}", False))
+    value_prefix = "log_saved_" if completed else "log_"
+    intensity = st.session_state.get(f"{value_prefix}intensity_{key_prefix}", "")
+    return {
+        "completed": completed,
+        "weight": st.session_state.get(f"{value_prefix}weight_{key_prefix}"),
+        "reps": st.session_state.get(f"{value_prefix}reps_{key_prefix}"),
+        "intensity_method": intensity,
+        "intensity_reps": (
+            st.session_state.get(
+                f"{value_prefix}intensity_reps_{key_prefix}", 0
+            )
+            if intensity
+            else 0
+        ),
+        "notes": st.session_state.get(
+            f"{value_prefix}set_notes_{key_prefix}", ""
+        ),
+    }
+
+
 def _workout_exercise_card(
     item: WorkoutExercise,
     *,
@@ -1039,8 +1065,6 @@ def log_workout_page() -> None:
     previous_results = get_previous_results(
         (item.exercise_id for item in configured), profile_id=profile_id
     )
-    draft_sets: dict[int, list[dict[str, object]]] = {}
-
     def clear_draft_widgets() -> None:
         """Remove every widget value belonging to the current workout draft."""
         for configured_item in configured:
@@ -1068,25 +1092,27 @@ def log_workout_page() -> None:
             placeholder="Optional notes about the workout",
             key=notes_key,
         )
-    st.caption(
-        "Check Log this set when an exercise is complete. Its card will close "
-        "and the next exercise will open."
-    )
-    first_incomplete_id = next(
-        (
-            item.id
-            for item in configured
-            if not bool(
-                st.session_state.get(
-                    f"log_done_{_draft_key_prefix(profile_id, workout_id, item.id)}",
-                    False,
+    @st.fragment
+    def render_exercise_drafts() -> None:
+        """Refresh draft cards locally without repeating cloud-backed page reads."""
+        st.caption(
+            "Check Log this set when an exercise is complete. Its card will close "
+            "and the next exercise will open."
+        )
+        first_incomplete_id = next(
+            (
+                item.id
+                for item in configured
+                if not bool(
+                    st.session_state.get(
+                        f"log_done_{_draft_key_prefix(profile_id, workout_id, item.id)}",
+                        False,
+                    )
                 )
-            )
-        ),
-        None,
-    )
-    for index, item in enumerate(configured):
-        draft_sets[item.id] = [
+            ),
+            None,
+        )
+        for index, item in enumerate(configured):
             _workout_exercise_card(
                 item,
                 profile_id=profile_id,
@@ -1096,7 +1122,8 @@ def log_workout_page() -> None:
                 can_move_up=index > 0,
                 can_move_down=index < len(configured) - 1,
             )
-        ]
+
+    render_exercise_drafts()
     save_col, cancel_col = st.columns([2, 1])
     save_workout = save_col.button("Complete and save", type="primary")
     request_cancel = cancel_col.button("Cancel workout")
@@ -1126,7 +1153,7 @@ def log_workout_page() -> None:
         incomplete_exercises = [
             item.exercise_name
             for item in configured
-            for row in draft_sets[item.id]
+            for row in [_draft_exercise_values(profile_id, workout_id, item.id)]
             if (
                 (row["weight"] is None) != (row["reps"] is None)
                 or (
@@ -1143,6 +1170,7 @@ def log_workout_page() -> None:
             return
         logs: list[ExerciseLog] = []
         for item in configured:
+            row = _draft_exercise_values(profile_id, workout_id, item.id)
             entries = tuple(
                 SetEntry(
                     weight=round(float(row["weight"]), 2),
@@ -1151,7 +1179,7 @@ def log_workout_page() -> None:
                     intensity_reps=int(row["intensity_reps"]),
                     notes=str(row["notes"] or ""),
                 )
-                for row in draft_sets[item.id]
+                for row in [row]
                 if bool(row["completed"])
             )
             logs.append(ExerciseLog(item.id, entries))
