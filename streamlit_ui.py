@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from datetime import date, datetime
 from typing import Callable
 
@@ -817,6 +818,7 @@ def _workout_exercise_card(
     expanded: bool,
     can_move_up: bool,
     can_move_down: bool,
+    on_move: Callable[[int, int], None],
 ) -> dict[str, object]:
     """Render one compact, phone-friendly exercise entry card."""
     previous_sets = list(previous["sets"]) if previous else []
@@ -840,24 +842,26 @@ def _workout_exercise_card(
     )
     card_col = exercise_row.container(width="stretch")
     if not completed_before_render:
-        if exercise_row.button(
+        exercise_row.button(
             "↑",
             key=f"log_move_up_{item.id}",
             disabled=not can_move_up,
             help=f"Move {item.exercise_name} earlier",
             type="tertiary",
             width="content",
-        ) and show_error(lambda: move_workout_exercise(item.id, -1)):
-            st.rerun()
-        if exercise_row.button(
+            on_click=on_move,
+            args=(item.id, -1),
+        )
+        exercise_row.button(
             "↓",
             key=f"log_move_down_{item.id}",
             disabled=not can_move_down,
             help=f"Move {item.exercise_name} later",
             type="tertiary",
             width="content",
-        ) and show_error(lambda: move_workout_exercise(item.id, 1)):
-            st.rerun()
+            on_click=on_move,
+            args=(item.id, 1),
+        )
     if completed_before_render:
         weight = st.session_state.get(f"log_saved_weight_{key_prefix}")
         reps = st.session_state.get(f"log_saved_reps_{key_prefix}")
@@ -1024,56 +1028,56 @@ def log_workout_page() -> None:
             key="log_workout_id",
         )
     configured = list_workout_exercises(workout_id)
-
-    with st.popover("＋ Add an unplanned exercise", width="stretch"):
-        active_exercises = list_exercises(active_only=True)
-        configured_exercise_ids = {item.exercise_id for item in configured}
-        available_exercises = [
-            item for item in active_exercises if item.id not in configured_exercise_ids
-        ]
-        if available_exercises:
-            exercise_labels = {
-                item.id: f"{item.name} · {item.equipment}"
-                for item in available_exercises
-            }
-            add_col, button_col = st.columns([4, 1], vertical_alignment="bottom")
-            extra_exercise_id = add_col.selectbox(
-                "Add an unplanned exercise",
-                list(exercise_labels),
-                format_func=exercise_labels.get,
-                key=f"log_add_exercise_{workout_id}",
-            )
-            if button_col.button(
-                "Add",
-                key=f"log_add_exercise_button_{workout_id}",
-                width="stretch",
-            ) and show_error(
-                lambda: add_exercise_to_workout(
-                    workout_id,
-                    extra_exercise_id,
-                    target_min_reps=6,
-                    target_max_reps=10,
-                    target_sets=1,
-                )
-            ):
-                st.success("Exercise added to this workout.")
-                st.rerun()
-        else:
-            st.caption("Every active library exercise is already in this workout.")
-
-    if not configured:
-        st.warning("This workout has no exercises. Add one above to begin logging.")
-        return
+    active_exercises = list_exercises(active_only=True)
 
     date_key = f"log_date_{profile_id}_{workout_id}"
     time_key = f"log_time_{profile_id}_{workout_id}"
     notes_key = f"log_notes_{profile_id}_{workout_id}"
     previous_results = get_previous_results(
-        (item.exercise_id for item in configured), profile_id=profile_id
+        (item.id for item in active_exercises), profile_id=profile_id
     )
+    order_key = f"log_exercise_order_{profile_id}_{workout_id}"
+    extras_key = f"log_extra_exercises_{profile_id}_{workout_id}"
+    configured_by_id = {item.id: item for item in configured}
+    if order_key not in st.session_state:
+        st.session_state[order_key] = [item.id for item in configured]
+    st.session_state.setdefault(extras_key, [])
+
+    def draft_exercises() -> list[WorkoutExercise]:
+        extras = {
+            -exercise.id: WorkoutExercise(
+                id=-exercise.id,
+                workout_id=workout_id,
+                exercise_id=exercise.id,
+                exercise_name=exercise.name,
+                primary_muscle_group=exercise.primary_muscle_group,
+                equipment=exercise.equipment,
+                position=0,
+                target_min_reps=6,
+                target_max_reps=10,
+                target_sets=1,
+                instructions="",
+            )
+            for exercise in active_exercises
+            if exercise.id in st.session_state.get(extras_key, [])
+        }
+        available = configured_by_id | extras
+        ordered_ids = [
+            item_id
+            for item_id in st.session_state.get(order_key, [])
+            if item_id in available
+        ]
+        return [
+            replace(available[item_id], position=index)
+            for index, item_id in enumerate(ordered_ids, start=1)
+        ]
+
+    if not configured and not active_exercises:
+        st.warning("Create an exercise before logging this workout.")
+        return
     def clear_draft_widgets() -> None:
         """Remove every widget value belonging to the current workout draft."""
-        for configured_item in configured:
+        for configured_item in draft_exercises():
             key_prefix = _draft_key_prefix(
                 profile_id, workout_id, configured_item.id
             )
@@ -1083,6 +1087,26 @@ def log_workout_page() -> None:
                 "saved_intensity", "saved_intensity_reps", "saved_set_notes",
             ):
                 st.session_state.pop(f"log_{field}_{key_prefix}", None)
+
+    def move_local_exercise(workout_exercise_id: int, direction: int) -> None:
+        order = list(st.session_state.get(order_key, []))
+        current_index = order.index(workout_exercise_id)
+        target_index = current_index + direction
+        if 0 <= target_index < len(order):
+            order[current_index], order[target_index] = (
+                order[target_index], order[current_index]
+            )
+            st.session_state[order_key] = order
+
+    def add_local_exercise(exercise_id: int) -> None:
+        extras = list(st.session_state.get(extras_key, []))
+        if exercise_id not in extras:
+            extras.append(exercise_id)
+            st.session_state[extras_key] = extras
+            st.session_state[order_key] = [
+                *st.session_state.get(order_key, []),
+                -exercise_id,
+            ]
 
     cancel_state_key = f"cancel_workout_{profile_id}_{workout_id}"
     save_request_key = f"save_workout_request_{profile_id}_{workout_id}"
@@ -1099,6 +1123,8 @@ def log_workout_page() -> None:
         clear_draft_widgets()
         for key in (date_key, time_key, notes_key, cancel_state_key):
             st.session_state.pop(key, None)
+        st.session_state[order_key] = [item.id for item in configured]
+        st.session_state[extras_key] = []
         st.session_state[local_cancelled_key] = True
 
     @st.fragment
@@ -1119,6 +1145,39 @@ def log_workout_page() -> None:
                 placeholder="Optional notes about the workout",
                 key=notes_key,
             )
+        current_items = draft_exercises()
+        current_exercise_ids = {item.exercise_id for item in current_items}
+        available_exercises = [
+            exercise
+            for exercise in active_exercises
+            if exercise.id not in current_exercise_ids
+        ]
+        with st.popover("＋ Add an unplanned exercise", width="stretch"):
+            if available_exercises:
+                exercise_labels = {
+                    exercise.id: f"{exercise.name} · {exercise.equipment}"
+                    for exercise in available_exercises
+                }
+                add_col, button_col = st.columns(
+                    [4, 1], vertical_alignment="bottom"
+                )
+                extra_exercise_id = add_col.selectbox(
+                    "Add an unplanned exercise",
+                    list(exercise_labels),
+                    format_func=exercise_labels.get,
+                    key=f"log_add_exercise_{workout_id}",
+                )
+                button_col.button(
+                    "Add",
+                    key=f"log_add_exercise_button_{workout_id}",
+                    width="stretch",
+                    on_click=add_local_exercise,
+                    args=(extra_exercise_id,),
+                )
+            else:
+                st.caption(
+                    "Every active library exercise is already in this workout."
+                )
         st.caption(
             "Check Log this set when an exercise is complete. Its card will close "
             "and the next exercise will open."
@@ -1126,7 +1185,7 @@ def log_workout_page() -> None:
         first_incomplete_id = next(
             (
                 item.id
-                for item in configured
+                for item in current_items
                 if not bool(
                     st.session_state.get(
                         f"log_done_{_draft_key_prefix(profile_id, workout_id, item.id)}",
@@ -1136,7 +1195,7 @@ def log_workout_page() -> None:
             ),
             None,
         )
-        for index, item in enumerate(configured):
+        for index, item in enumerate(current_items):
             _workout_exercise_card(
                 item,
                 profile_id=profile_id,
@@ -1144,7 +1203,8 @@ def log_workout_page() -> None:
                 previous=previous_results.get(item.exercise_id),
                 expanded=item.id == first_incomplete_id,
                 can_move_up=index > 0,
-                can_move_down=index < len(configured) - 1,
+                can_move_down=index < len(current_items) - 1,
+                on_move=move_local_exercise,
             )
 
         save_col, cancel_col = st.columns([2, 1])
@@ -1171,9 +1231,10 @@ def log_workout_page() -> None:
     render_exercise_drafts()
     save_workout = bool(st.session_state.pop(save_request_key, False))
     if save_workout:
+        final_items = draft_exercises()
         incomplete_exercises = [
             item.exercise_name
-            for item in configured
+            for item in final_items
             for row in [_draft_exercise_values(profile_id, workout_id, item.id)]
             if (
                 (row["weight"] is None) != (row["reps"] is None)
@@ -1189,21 +1250,13 @@ def log_workout_page() -> None:
                 + ", ".join(incomplete_exercises)
             )
             return
-        logs: list[ExerciseLog] = []
-        for item in configured:
-            row = _draft_exercise_values(profile_id, workout_id, item.id)
-            entries = tuple(
-                SetEntry(
-                    weight=round(float(row["weight"]), 2),
-                    reps=int(row["reps"]),
-                    intensity_method=str(row["intensity_method"] or ""),
-                    intensity_reps=int(row["intensity_reps"]),
-                    notes=str(row["notes"] or ""),
-                )
-                for row in [row]
-                if bool(row["completed"])
-            )
-            logs.append(ExerciseLog(item.id, entries))
+        draft_rows = {
+            item.id: _draft_exercise_values(profile_id, workout_id, item.id)
+            for item in final_items
+        }
+        if not any(bool(row["completed"]) for row in draft_rows.values()):
+            st.error("Log at least one completed set before saving.")
+            return
         session_date = st.session_state.get(date_key, date.today())
         completion_time = st.session_state.get(
             time_key, datetime.now().time().replace(microsecond=0)
@@ -1211,8 +1264,62 @@ def log_workout_page() -> None:
         session_notes = str(st.session_state.get(notes_key, ""))
         completed_at = datetime.combine(session_date, completion_time)
         saved_id: list[int] = []
-        if show_error(
-            lambda: saved_id.append(
+
+        def persist_plan_and_session() -> None:
+            """Apply local plan changes, then save the completed session."""
+            for item in final_items:
+                if item.id < 0:
+                    add_exercise_to_workout(
+                        workout_id,
+                        item.exercise_id,
+                        target_min_reps=item.target_min_reps,
+                        target_max_reps=item.target_max_reps,
+                        target_sets=1,
+                        instructions=item.instructions,
+                    )
+            persisted = list_workout_exercises(workout_id)
+            persisted_by_exercise = {
+                item.exercise_id: item for item in persisted
+            }
+            current_ids = [item.id for item in persisted]
+            desired_ids = [
+                persisted_by_exercise[item.exercise_id].id for item in final_items
+            ]
+            for target_index, workout_exercise_id in enumerate(desired_ids):
+                current_index = current_ids.index(workout_exercise_id)
+                while current_index > target_index:
+                    move_workout_exercise(workout_exercise_id, -1)
+                    current_ids[current_index - 1], current_ids[current_index] = (
+                        current_ids[current_index], current_ids[current_index - 1]
+                    )
+                    current_index -= 1
+                while current_index < target_index:
+                    move_workout_exercise(workout_exercise_id, 1)
+                    current_ids[current_index], current_ids[current_index + 1] = (
+                        current_ids[current_index + 1], current_ids[current_index]
+                    )
+                    current_index += 1
+            logs: list[ExerciseLog] = []
+            for item in final_items:
+                row = draft_rows[item.id]
+                entries = tuple(
+                    SetEntry(
+                        weight=round(float(row["weight"]), 2),
+                        reps=int(row["reps"]),
+                        intensity_method=str(row["intensity_method"] or ""),
+                        intensity_reps=int(row["intensity_reps"]),
+                        notes=str(row["notes"] or ""),
+                    )
+                    for row in [row]
+                    if bool(row["completed"])
+                )
+                logs.append(
+                    ExerciseLog(
+                        persisted_by_exercise[item.exercise_id].id,
+                        entries,
+                    )
+                )
+            saved_id.append(
                 save_completed_session(
                     routine_id,
                     workout_id,
@@ -1223,10 +1330,15 @@ def log_workout_page() -> None:
                     notes=session_notes,
                 )
             )
+
+        if show_error(
+            persist_plan_and_session
         ):
             st.session_state["last_saved_session"] = saved_id[0]
             clear_draft_widgets()
-            for key in (date_key, time_key, notes_key, cancel_state_key):
+            for key in (
+                date_key, time_key, notes_key, cancel_state_key, order_key, extras_key
+            ):
                 st.session_state.pop(key, None)
             st.session_state["workout_saved"] = True
             st.session_state["navigate_after_rerun"] = "History"

@@ -415,15 +415,39 @@ class AppSmokeTests(unittest.TestCase):
                     if button.key == f"log_add_exercise_button_{workout.id}"
                 ).click().run()
                 adjusted = list_workout_exercises(workout.id, db_path=db_path)
-                added = next(item for item in adjusted if item.exercise_id == extra.id)
-                self.assertEqual(added.position, len(adjusted))
+                self.assertFalse(
+                    any(item.exercise_id == extra.id for item in adjusted)
+                )
+                order_key = (
+                    f"log_exercise_order_{other_profile_id}_{workout.id}"
+                )
+                self.assertEqual(app.session_state[order_key][-1], -extra.id)
 
                 next(
                     button for button in app.button
-                    if button.key == f"log_move_up_{added.id}"
+                    if button.key == f"log_move_up_{-extra.id}"
+                ).click().run()
+                self.assertEqual(app.session_state[order_key][-2], -extra.id)
+                self.assertFalse(
+                    any(
+                        item.exercise_id == extra.id
+                        for item in list_workout_exercises(
+                            workout.id, db_path=db_path
+                        )
+                    )
+                )
+                next(
+                    widget for widget in app.checkbox
+                    if widget.label == "Log this set"
+                ).check().run()
+                next(
+                    button for button in app.button
+                    if button.label == "Complete and save"
                 ).click().run()
                 reordered = list_workout_exercises(workout.id, db_path=db_path)
-                moved = next(item for item in reordered if item.id == added.id)
+                moved = next(
+                    item for item in reordered if item.exercise_id == extra.id
+                )
                 self.assertEqual(moved.position, len(reordered) - 1)
             finally:
                 if previous_path is None:
