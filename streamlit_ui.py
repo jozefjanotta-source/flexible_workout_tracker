@@ -770,6 +770,18 @@ def _complete_draft_exercise(completed_key: str, key_prefix: str) -> None:
     st.session_state[completed_key] = True
 
 
+def _edit_draft_exercise(
+    completed_key: str, completed_widget_key: str, key_prefix: str
+) -> None:
+    """Restore a compact set to editable local widget state."""
+    st.session_state[completed_key] = False
+    st.session_state.pop(completed_widget_key, None)
+    for field in ("weight", "reps", "intensity", "intensity_reps", "set_notes"):
+        st.session_state[f"log_{field}_{key_prefix}"] = st.session_state.get(
+            f"log_saved_{field}_{key_prefix}"
+        )
+
+
 def _draft_exercise_values(
     profile_id: int, workout_id: int, workout_exercise_id: int
 ) -> dict[str, object]:
@@ -812,11 +824,13 @@ def _workout_exercise_card(
     key_prefix = _draft_key_prefix(profile_id, workout_id, item.id)
     weight_key = f"log_weight_{key_prefix}"
     reps_key = f"log_reps_{key_prefix}"
+    intensity_reps_key = f"log_intensity_reps_{key_prefix}"
     completed_key = f"log_done_{key_prefix}"
     completed_widget_key = f"log_done_widget_{key_prefix}"
     if previous_set is not None:
         st.session_state.setdefault(weight_key, float(previous_set["weight"]))
         st.session_state.setdefault(reps_key, int(previous_set["reps"]))
+    st.session_state.setdefault(intensity_reps_key, 0)
     completed_before_render = bool(st.session_state.get(completed_key, False))
     exercise_row = st.container(
         key=f"log_exercise_row_{item.id}",
@@ -866,21 +880,14 @@ def _workout_exercise_card(
                 summary_col.caption(result)
             else:
                 summary_col.caption("Weight or reps still needs attention.")
-            if edit_col.button(
+            edit_col.button(
                 "Edit",
                 key=f"edit_logged_set_{key_prefix}",
                 help=f"Reopen {item.exercise_name}",
                 width="stretch",
-            ):
-                st.session_state[completed_key] = False
-                st.session_state.pop(completed_widget_key, None)
-                for field in (
-                    "weight", "reps", "intensity", "intensity_reps", "set_notes"
-                ):
-                    st.session_state[f"log_{field}_{key_prefix}"] = (
-                        st.session_state.get(f"log_saved_{field}_{key_prefix}")
-                    )
-                st.rerun()
+                on_click=_edit_draft_exercise,
+                args=(completed_key, completed_widget_key, key_prefix),
+            )
         return {
             "completed": True,
             "weight": weight,
@@ -942,9 +949,8 @@ def _workout_exercise_card(
             "Intensity reps",
             min_value=0,
             max_value=20,
-            value=0,
             step=1,
-            key=f"log_intensity_reps_{key_prefix}",
+            key=intensity_reps_key,
             help=(
                 "Reps performed using the selected intensity method. "
                 "Leave at 0 when no intensity method is used."

@@ -202,6 +202,21 @@ class AppSmokeTests(unittest.TestCase):
                 )
                 next(
                     button for button in app.button
+                    if button.label == "Edit"
+                ).click().run()
+                self.assertEqual(
+                    next(
+                        widget for widget in app.number_input
+                        if widget.label == "Weight"
+                    ).value,
+                    50.25,
+                )
+                next(
+                    widget for widget in app.checkbox
+                    if widget.label == "Log this set"
+                ).check().run()
+                next(
+                    button for button in app.button
                     if button.label == "Complete and save"
                 ).click().run()
 
